@@ -1,5 +1,5 @@
-const STATIC_CACHE = 'debtcontrol-static-v5.0.0';
-const DYNAMIC_CACHE = 'debtcontrol-dynamic-v5.0.0';
+const STATIC_CACHE = 'debtcontrol-static-v6.0.0';
+const DYNAMIC_CACHE = 'debtcontrol-dynamic-v6.0.0';
 
 const STATIC_ASSETS = [
   './',
@@ -23,7 +23,7 @@ const CACHEABLE_CDNS = [
 // Instalar: cachear archivos pero NO activar inmediatamente
 // (permite que el banner de actualización funcione correctamente)
 self.addEventListener('install', (event) => {
-  console.log('[SW] Instalando v5.0.0...');
+  console.log('[SW] Instalando v6.0.0...');
   event.waitUntil(
     caches.open(STATIC_CACHE)
       .then((cache) => cache.addAll(STATIC_ASSETS))

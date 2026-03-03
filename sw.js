@@ -1,6 +1,6 @@
-const CACHE_NAME = 'debtcontrol-v3.0.0';
-const STATIC_CACHE = 'debtcontrol-static-v3.0.0';
-const DYNAMIC_CACHE = 'debtcontrol-dynamic-v3.0.0';
+const CACHE_NAME = 'debtcontrol-v3.1.0';
+const STATIC_CACHE = 'debtcontrol-static-v3.1.0';
+const DYNAMIC_CACHE = 'debtcontrol-dynamic-v3.1.0';
 
 // Archivos esenciales para cachear (incluye los assets del build)
 const STATIC_ASSETS = [

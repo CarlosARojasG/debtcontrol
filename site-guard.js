@@ -1,11 +1,12 @@
 /**
- * DebtControl Pro - Site Guard v2.0
+ * DebtControl Pro - Site Guard v3.0
  * Protección de acceso al sitio con código maestro
  * 
  * - Usa Firebase REST API (no requiere SDK, solo la URL de la BD)
  * - En dispositivos nuevos pide la URL de Firebase + código
  * - Hash SHA-256: nadie puede ver el código real
- * - Sesión por pestaña (sessionStorage), 12 horas
+ * - Sesión persistente (localStorage) con expiración de 24h
+ * - UI modal para cambiar código (no más prompt feos)
  */
 
 (function() {
@@ -74,17 +75,23 @@
   }
 
   // ============================================================
-  // Sesión
+  // Sesión persistente (localStorage, 24h)
   // ============================================================
+  var SESSION_HOURS = 24;
+
   function hasValidSession() {
     try {
-      var s = JSON.parse(sessionStorage.getItem(SESSION_KEY));
-      return s && (Date.now() - s.ts < 12 * 60 * 60 * 1000);
+      var s = JSON.parse(localStorage.getItem(SESSION_KEY));
+      return s && (Date.now() - s.ts < SESSION_HOURS * 60 * 60 * 1000);
     } catch (e) { return false; }
   }
 
   function createSession() {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ ts: Date.now() }));
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ts: Date.now() }));
+  }
+
+  function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
   }
 
   // ============================================================
@@ -321,36 +328,115 @@
   }
 
   // ============================================================
-  // Admin: cambiar/resetear código
+  // Admin: cambiar/resetear código (UI modal bonita)
   // ============================================================
-  window.DebtControlGuard = {
-    changeCode: async function() {
-      var current = prompt('C\u00f3digo actual:');
-      if (!current) return;
-      var currentHash = await sha256(current);
+  function showChangeCodeModal() {
+    var existing = document.getElementById('dc-change-code-modal');
+    if (existing) existing.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'dc-change-code-modal';
+    Object.assign(overlay.style, {
+      position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+      background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', zIndex: '999998', padding: '16px',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    });
+
+    var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    var bg = isDark ? '#1a1a2e' : '#fff';
+    var txt = isDark ? '#fff' : '#1a1a2e';
+    var iBg = isDark ? '#16213e' : '#f5f5f5';
+    var bdr = isDark ? '#2d3748' : '#e0e0e0';
+
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '380px',
+      width: '100%', color: txt, boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    var iSt = 'width:100%;padding:14px;border-radius:10px;border:1px solid ' + bdr + ';background:' + iBg + ';color:' + txt + ';font-size:15px;box-sizing:border-box;margin-top:10px;text-align:center;letter-spacing:3px;outline:none;';
+
+    card.innerHTML = ''
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '  <h2 style="margin:0;font-size:18px">\uD83D\uDD12 Cambiar C\u00f3digo</h2>'
+      + '  <button id="dc-cc-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + txt + '">\u2715</button>'
+      + '</div>'
+      + '<label style="font-size:12px;font-weight:600;color:' + (isDark ? '#a0a0a0' : '#888') + '">C\u00f3digo actual</label>'
+      + '<input id="dc-cc-current" type="password" placeholder="\u2022\u2022\u2022\u2022" style="' + iSt + '">'
+      + '<label style="font-size:12px;font-weight:600;color:' + (isDark ? '#a0a0a0' : '#888') + ';display:block;margin-top:12px">Nuevo c\u00f3digo (m\u00edn. 4)</label>'
+      + '<input id="dc-cc-new1" type="password" placeholder="Nuevo c\u00f3digo" style="' + iSt + '">'
+      + '<input id="dc-cc-new2" type="password" placeholder="Confirmar nuevo" style="' + iSt + '">'
+      + '<div id="dc-cc-err" style="color:#FF6B6B;font-size:13px;margin-top:10px;min-height:18px;text-align:center"></div>'
+      + '<button id="dc-cc-btn" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:8px">\uD83D\uDD10 Cambiar C\u00f3digo</button>'
+      + '<button id="dc-cc-logout" style="width:100%;padding:12px;border:1px solid #FF3B30;border-radius:10px;background:transparent;color:#FF3B30;font-size:13px;cursor:pointer;margin-top:10px">\uD83D\uDEAA Cerrar Sesi\u00f3n</button>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    card.querySelector('#dc-cc-close').addEventListener('click', function() { overlay.remove(); });
+
+    card.querySelector('#dc-cc-logout').addEventListener('click', function() {
+      clearSession();
+      overlay.remove();
+      location.reload();
+    });
+
+    card.querySelector('#dc-cc-btn').addEventListener('click', async function() {
+      var cur = card.querySelector('#dc-cc-current').value;
+      var n1 = card.querySelector('#dc-cc-new1').value;
+      var n2 = card.querySelector('#dc-cc-new2').value;
+      var err = card.querySelector('#dc-cc-err');
+      var btn = card.querySelector('#dc-cc-btn');
+      err.textContent = '';
+
+      if (!cur) { err.textContent = 'Ingresa el c\u00f3digo actual'; return; }
+      var curHash = await sha256(cur);
       var localHash = localStorage.getItem(LOCAL_HASH_KEY);
-      if (currentHash !== localHash) { alert('C\u00f3digo incorrecto'); return; }
-      var newCode = prompt('Nuevo c\u00f3digo (m\u00edn. 4 caracteres):');
-      if (!newCode || newCode.length < 4) { alert('Muy corto (m\u00edn. 4)'); return; }
-      var confirm2 = prompt('Confirma el nuevo c\u00f3digo:');
-      if (newCode !== confirm2) { alert('No coinciden'); return; }
-      var newHash = await sha256(newCode);
+      if (curHash !== localHash) { err.textContent = 'C\u00f3digo actual incorrecto'; return; }
+      if (n1.length < 4) { err.textContent = 'M\u00ednimo 4 caracteres'; return; }
+      if (n1 !== n2) { err.textContent = 'Los c\u00f3digos no coinciden'; return; }
+
+      btn.disabled = true;
+      btn.textContent = '\u23F3 Guardando...';
+      var newHash = await sha256(n1);
       localStorage.setItem(LOCAL_HASH_KEY, newHash);
-      var dbUrl = getDbUrl();
-      if (dbUrl) await saveRemoteHash(dbUrl, newHash);
-      alert('\u2705 C\u00f3digo cambiado');
+      var db = getDbUrl();
+      if (db) await saveRemoteHash(db, newHash);
+
+      overlay.remove();
+      // Mostrar toast de éxito
+      var toast = document.createElement('div');
+      toast.textContent = '\u2705 C\u00f3digo cambiado exitosamente';
+      Object.assign(toast.style, {
+        position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)',
+        background: '#34C759', color: '#fff', padding: '12px 24px', borderRadius: '12px',
+        fontSize: '14px', fontWeight: '500', zIndex: '99999', boxShadow: '0 4px 20px rgba(0,0,0,0.2)'
+      });
+      document.body.appendChild(toast);
+      setTimeout(function() { toast.remove(); }, 3000);
+    });
+  }
+
+  window.DebtControlGuard = {
+    changeCode: showChangeCodeModal,
+    logout: function() {
+      clearSession();
+      location.reload();
     },
     resetCode: async function() {
-      if (prompt('Escribe CONFIRMAR para eliminar el c\u00f3digo:') !== 'CONFIRMAR') return;
+      if (!confirm('\u00bfEliminar el c\u00f3digo de acceso?\nEscribe OK para confirmar.')) return;
       localStorage.removeItem(LOCAL_HASH_KEY);
-      var dbUrl = getDbUrl();
-      if (dbUrl) {
+      var db = getDbUrl();
+      if (db) {
         try {
-          var url = dbUrl.replace(/\/$/, '') + GUARD_PATH;
+          var url = db.replace(/\/$/, '') + GUARD_PATH;
           await fetch(url, { method: 'DELETE' });
         } catch (e) {}
       }
-      alert('\u2705 C\u00f3digo eliminado. Recarga la p\u00e1gina.');
+      clearSession();
+      location.reload();
     }
   };
 

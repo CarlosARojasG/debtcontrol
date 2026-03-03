@@ -560,7 +560,9 @@
       { icon: '\u2B07\uFE0F', label: 'Descargar de la Nube', action: syncFromCloud },
       { sep: true },
       { icon: '\u2699\uFE0F', label: 'Configurar Firebase', action: showFirebaseSetup },
-      { icon: '\uD83D\uDD12', label: 'Cambiar C\u00f3digo de Acceso', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.changeCode(); else showToast('Guard no disponible'); } }
+      { icon: '\uD83D\uDD12', label: 'Cambiar C\u00f3digo de Acceso', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.changeCode(); else showToast('Guard no disponible'); } },
+      { sep: true },
+      { icon: '\uD83D\uDEAA', label: 'Cerrar Sesi\u00f3n', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.logout(); else { localStorage.removeItem('debtcontrol_auth_session'); location.reload(); } } }
     ];
 
     items.forEach(function(item) {

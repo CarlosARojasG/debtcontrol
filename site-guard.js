@@ -1,12 +1,12 @@
 /**
- * DebtControl Pro - Site Guard v3.0
- * Protección de acceso al sitio con código maestro
- * 
- * - Usa Firebase REST API (no requiere SDK, solo la URL de la BD)
- * - En dispositivos nuevos pide la URL de Firebase + código
- * - Hash SHA-256: nadie puede ver el código real
- * - Sesión persistente (localStorage) con expiración de 24h
- * - UI modal para cambiar código (no más prompt feos)
+ * DebtControl Pro - Site Guard v4.0
+ * Protección de acceso con código maestro
+ *
+ * v4.0 - Rate limiting, sesión configurable, modals bonitos
+ * - Firebase REST API (no SDK, solo URL)
+ * - Hash SHA-256
+ * - Bloqueo tras 5 intentos fallidos (5 min)
+ * - Sesión persistente configurable (1h, 8h, 24h, 7d, siempre)
  */
 
 (function() {
@@ -16,6 +16,11 @@
   var LOCAL_HASH_KEY = 'debtcontrol_access_hash';
   var DB_URL_KEY = 'debtcontrol_guard_dburl';
   var GUARD_PATH = '/config/siteGuard.json';
+  var ATTEMPTS_KEY = 'debtcontrol_login_attempts';
+  var SESSION_DURATION_KEY = 'debtcontrol_session_duration';
+
+  var MAX_ATTEMPTS = 5;
+  var LOCKOUT_MINUTES = 5;
 
   // ============================================================
   // SHA-256
@@ -28,10 +33,9 @@
   }
 
   // ============================================================
-  // Firebase REST API (no requiere SDK ni config completa)
+  // Firebase REST API
   // ============================================================
   function getDbUrl() {
-    // Primero intentar desde la config de cloud-sync
     try {
       var raw = localStorage.getItem('debtcontrol_firebase_config');
       if (raw) {
@@ -42,7 +46,6 @@
         }
       }
     } catch (e) {}
-    // Fallback: URL guardada por el guard
     return localStorage.getItem(DB_URL_KEY) || null;
   }
 
@@ -75,14 +78,63 @@
   }
 
   // ============================================================
-  // Sesión persistente (localStorage, 24h)
+  // Rate Limiting (anti fuerza bruta)
   // ============================================================
-  var SESSION_HOURS = 24;
+  function getAttempts() {
+    try {
+      var data = JSON.parse(localStorage.getItem(ATTEMPTS_KEY));
+      if (!data) return { count: 0 };
+      if (data.lockedUntil && Date.now() >= data.lockedUntil) {
+        localStorage.removeItem(ATTEMPTS_KEY);
+        return { count: 0 };
+      }
+      return data;
+    } catch (e) { return { count: 0 }; }
+  }
+
+  function recordFailedAttempt() {
+    var data = getAttempts();
+    data.count = (data.count || 0) + 1;
+    if (data.count >= MAX_ATTEMPTS) {
+      data.lockedUntil = Date.now() + LOCKOUT_MINUTES * 60 * 1000;
+    }
+    localStorage.setItem(ATTEMPTS_KEY, JSON.stringify(data));
+    return data;
+  }
+
+  function clearAttempts() {
+    localStorage.removeItem(ATTEMPTS_KEY);
+  }
+
+  function isLocked() {
+    var data = getAttempts();
+    return !!(data.lockedUntil && Date.now() < data.lockedUntil);
+  }
+
+  function getRemainingLockSeconds() {
+    var data = getAttempts();
+    if (data.lockedUntil) {
+      var remaining = Math.ceil((data.lockedUntil - Date.now()) / 1000);
+      return remaining > 0 ? remaining : 0;
+    }
+    return 0;
+  }
+
+  // ============================================================
+  // Sesión persistente (configurable)
+  // ============================================================
+  function getSessionHours() {
+    var saved = localStorage.getItem(SESSION_DURATION_KEY);
+    return saved !== null ? parseFloat(saved) : 24;
+  }
 
   function hasValidSession() {
     try {
       var s = JSON.parse(localStorage.getItem(SESSION_KEY));
-      return s && (Date.now() - s.ts < SESSION_HOURS * 60 * 60 * 1000);
+      if (!s) return false;
+      var hours = getSessionHours();
+      if (hours === 0) return true; // "No cerrar sesión"
+      return Date.now() - s.ts < hours * 60 * 60 * 1000;
     } catch (e) { return false; }
   }
 
@@ -137,7 +189,7 @@
   }
 
   // ============================================================
-  // Pantalla: LOGIN (tiene hash local o conoce la DB URL)
+  // Pantalla: LOGIN
   // ============================================================
   function showLogin(hashData) {
     hideApp();
@@ -159,9 +211,33 @@
     var inp = card.querySelector('#dc-code');
     var btn = card.querySelector('#dc-btn');
     var err = card.querySelector('#dc-err');
+
+    // Mostrar estado de bloqueo si aplica
+    if (isLocked()) {
+      var secs = getRemainingLockSeconds();
+      err.textContent = '\uD83D\uDD12 Bloqueado. Intenta en ' + Math.ceil(secs / 60) + ' min';
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      var lockTimer = setInterval(function() {
+        var remaining = getRemainingLockSeconds();
+        if (remaining <= 0) {
+          clearInterval(lockTimer);
+          err.textContent = '';
+          btn.disabled = false;
+          btn.style.opacity = '1';
+        } else {
+          err.textContent = '\uD83D\uDD12 Bloqueado. Intenta en ' + Math.ceil(remaining / 60) + ' min';
+        }
+      }, 5000);
+    }
+
     inp.focus();
 
     async function doLogin() {
+      if (isLocked()) {
+        err.textContent = '\uD83D\uDD12 Demasiados intentos. Espera unos minutos.';
+        return;
+      }
       var code = inp.value;
       if (!code) { err.textContent = 'Ingresa el c\u00f3digo'; return; }
       btn.disabled = true;
@@ -169,34 +245,52 @@
       err.textContent = '';
 
       var hash = await sha256(code);
+      var success = false;
 
-      // Si tenemos hash en memoria, comparar directo
-      if (hashData && hashData.hash) {
-        if (hash === hashData.hash) {
-          createSession();
-          localStorage.setItem(LOCAL_HASH_KEY, hash);
-          overlay.remove();
-          showApp();
-          return;
+      if (hashData && hashData.hash && hash === hashData.hash) {
+        success = true;
+      }
+
+      if (!success) {
+        var dbUrl = getDbUrl();
+        if (dbUrl) {
+          var remote = await getRemoteHash(dbUrl);
+          if (remote && remote.hash === hash) {
+            success = true;
+          }
         }
       }
 
-      // Si no, intentar comparar con Firebase REST
-      var dbUrl = getDbUrl();
-      if (dbUrl) {
-        var remote = await getRemoteHash(dbUrl);
-        if (remote && remote.hash === hash) {
-          createSession();
-          localStorage.setItem(LOCAL_HASH_KEY, hash);
-          overlay.remove();
-          showApp();
-          return;
-        }
+      if (success) {
+        clearAttempts();
+        createSession();
+        localStorage.setItem(LOCAL_HASH_KEY, hash);
+        overlay.remove();
+        showApp();
+        return;
       }
 
-      err.textContent = 'C\u00f3digo incorrecto';
-      btn.disabled = false;
-      btn.textContent = '\u2192 Entrar';
+      // Fallo
+      var attemptData = recordFailedAttempt();
+      if (attemptData.lockedUntil) {
+        err.textContent = '\uD83D\uDD12 Demasiados intentos. Bloqueado ' + LOCKOUT_MINUTES + ' min';
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        var lockTimer2 = setInterval(function() {
+          if (!isLocked()) {
+            clearInterval(lockTimer2);
+            err.textContent = '';
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.textContent = '\u2192 Entrar';
+          }
+        }, 5000);
+      } else {
+        var remaining = MAX_ATTEMPTS - attemptData.count;
+        err.textContent = 'C\u00f3digo incorrecto (' + remaining + ' intento' + (remaining !== 1 ? 's' : '') + ' restante' + (remaining !== 1 ? 's' : '') + ')';
+        btn.disabled = false;
+        btn.textContent = '\u2192 Entrar';
+      }
       inp.value = '';
       inp.focus();
     }
@@ -206,7 +300,7 @@
   }
 
   // ============================================================
-  // Pantalla: SETUP (primer uso, crear código)
+  // Pantalla: SETUP (primer uso)
   // ============================================================
   function showSetup(dbUrl) {
     hideApp();
@@ -237,7 +331,6 @@
       if (c1 !== c2) { err.textContent = 'Los c\u00f3digos no coinciden'; return; }
       btn.disabled = true;
       btn.textContent = '\u23F3 Guardando...';
-
       var hash = await sha256(c1);
       localStorage.setItem(LOCAL_HASH_KEY, hash);
       if (dbUrl) {
@@ -255,7 +348,7 @@
   }
 
   // ============================================================
-  // Pantalla: NUEVO DISPOSITIVO (no tiene config, pide DB URL + código)
+  // Pantalla: NUEVO DISPOSITIVO
   // ============================================================
   function showNewDevice() {
     hideApp();
@@ -265,8 +358,8 @@
     card.innerHTML = ''
       + '<div style="font-size:56px;margin-bottom:16px">\uD83D\uDCF1</div>'
       + '<h1 style="margin:0 0 8px 0;font-size:22px;font-weight:700">Nuevo Dispositivo</h1>'
-      + '<p style="margin:0 0 8px 0;font-size:13px;color:rgba(255,255,255,0.6)">Para acceder desde este dispositivo, necesitas tu <b>URL de Firebase</b> y tu <b>c\u00f3digo de acceso</b>.</p>'
-      + '<p style="margin:0 0 4px 0;font-size:11px;color:rgba(255,255,255,0.4)">La URL est\u00e1 en: \u2601\uFE0F \u2192 \u2699\uFE0F \u2192 campo "Database URL" de tu otro dispositivo</p>'
+      + '<p style="margin:0 0 8px 0;font-size:13px;color:rgba(255,255,255,0.6)">Para acceder necesitas tu <b>URL de Firebase</b> y tu <b>c\u00f3digo de acceso</b>.</p>'
+      + '<p style="margin:0 0 4px 0;font-size:11px;color:rgba(255,255,255,0.4)">La URL est\u00e1 en: \u2601\uFE0F \u2192 \u2699\uFE0F de tu otro dispositivo</p>'
       + '<input id="dc-dburl" type="url" placeholder="https://tu-proyecto-default-rtdb.firebaseio.com" style="' + inputStyle() + 'font-size:13px;letter-spacing:0" autocomplete="off">'
       + '<input id="dc-code" type="password" placeholder="C\u00f3digo de acceso" style="' + inputStyle() + 'letter-spacing:4px;font-size:18px" autocomplete="off">'
       + '<div id="dc-err" style="color:#FF6B6B;font-size:13px;margin-top:10px;min-height:18px"></div>'
@@ -296,7 +389,6 @@
       btn.disabled = true;
       btn.textContent = '\u23F3 Verificando...';
 
-      // Intentar leer el hash desde Firebase REST
       var remote = await getRemoteHash(dbUrl);
       if (!remote || !remote.hash) {
         err.textContent = 'No se encontr\u00f3 configuraci\u00f3n. Verifica la URL.';
@@ -307,9 +399,9 @@
 
       var hash = await sha256(code);
       if (hash === remote.hash) {
-        // Guardar todo para futuros accesos
         localStorage.setItem(DB_URL_KEY, dbUrl);
         localStorage.setItem(LOCAL_HASH_KEY, hash);
+        clearAttempts();
         createSession();
         overlay.remove();
         showApp();
@@ -328,7 +420,7 @@
   }
 
   // ============================================================
-  // Admin: cambiar/resetear código (UI modal bonita)
+  // Admin: cambiar código (modal bonito)
   // ============================================================
   function showChangeCodeModal() {
     var existing = document.getElementById('dc-change-code-modal');
@@ -387,26 +479,25 @@
       var cur = card.querySelector('#dc-cc-current').value;
       var n1 = card.querySelector('#dc-cc-new1').value;
       var n2 = card.querySelector('#dc-cc-new2').value;
-      var err = card.querySelector('#dc-cc-err');
-      var btn = card.querySelector('#dc-cc-btn');
-      err.textContent = '';
+      var errEl = card.querySelector('#dc-cc-err');
+      var btnEl = card.querySelector('#dc-cc-btn');
+      errEl.textContent = '';
 
-      if (!cur) { err.textContent = 'Ingresa el c\u00f3digo actual'; return; }
+      if (!cur) { errEl.textContent = 'Ingresa el c\u00f3digo actual'; return; }
       var curHash = await sha256(cur);
       var localHash = localStorage.getItem(LOCAL_HASH_KEY);
-      if (curHash !== localHash) { err.textContent = 'C\u00f3digo actual incorrecto'; return; }
-      if (n1.length < 4) { err.textContent = 'M\u00ednimo 4 caracteres'; return; }
-      if (n1 !== n2) { err.textContent = 'Los c\u00f3digos no coinciden'; return; }
+      if (curHash !== localHash) { errEl.textContent = 'C\u00f3digo actual incorrecto'; return; }
+      if (n1.length < 4) { errEl.textContent = 'M\u00ednimo 4 caracteres'; return; }
+      if (n1 !== n2) { errEl.textContent = 'Los c\u00f3digos no coinciden'; return; }
 
-      btn.disabled = true;
-      btn.textContent = '\u23F3 Guardando...';
+      btnEl.disabled = true;
+      btnEl.textContent = '\u23F3 Guardando...';
       var newHash = await sha256(n1);
       localStorage.setItem(LOCAL_HASH_KEY, newHash);
       var db = getDbUrl();
       if (db) await saveRemoteHash(db, newHash);
 
       overlay.remove();
-      // Mostrar toast de éxito
       var toast = document.createElement('div');
       toast.textContent = '\u2705 C\u00f3digo cambiado exitosamente';
       Object.assign(toast.style, {
@@ -419,14 +510,22 @@
     });
   }
 
+  // ============================================================
+  // API pública
+  // ============================================================
   window.DebtControlGuard = {
     changeCode: showChangeCodeModal,
-    logout: function() {
-      clearSession();
-      location.reload();
+    logout: function() { clearSession(); location.reload(); },
+    lock: function() { clearSession(); location.reload(); },
+    setSessionDuration: function(hours) {
+      localStorage.setItem(SESSION_DURATION_KEY, String(hours));
     },
+    getSessionDuration: getSessionHours,
     resetCode: async function() {
-      if (!confirm('\u00bfEliminar el c\u00f3digo de acceso?\nEscribe OK para confirmar.')) return;
+      // Usar dcConfirm si está disponible (de cloud-sync.js), sino fallback
+      var doConfirm = window.dcConfirm || function(msg) { return Promise.resolve(confirm(msg)); };
+      var ok = await doConfirm('\u00bfEliminar el c\u00f3digo de acceso?\nTendr\u00e1s que crear uno nuevo.');
+      if (!ok) return;
       localStorage.removeItem(LOCAL_HASH_KEY);
       var db = getDbUrl();
       if (db) {
@@ -444,36 +543,28 @@
   // Init
   // ============================================================
   async function init() {
-    // 1. Sesión válida → pasar
     if (hasValidSession()) return;
 
-    // 2. ¿Hay hash local?
     var localHash = localStorage.getItem(LOCAL_HASH_KEY);
     if (localHash) {
       showLogin({ hash: localHash });
       return;
     }
 
-    // 3. ¿Hay URL de Firebase disponible? (de cloud-sync o guardada antes)
     var dbUrl = getDbUrl();
     if (dbUrl) {
-      // Intentar leer hash remoto
       var remote = await getRemoteHash(dbUrl);
       if (remote && remote.hash) {
-        // Ya hay código configurado → pedir login
         localStorage.setItem(LOCAL_HASH_KEY, remote.hash);
         showLogin(remote);
       } else {
-        // No hay código aún → permitir setup (primer uso real)
         showSetup(dbUrl);
       }
       return;
     }
 
-    // 4. Dispositivo completamente nuevo (sin nada) → pedir URL + código
     showNewDevice();
   }
 
   init();
-
 })();

@@ -1,8 +1,6 @@
-const CACHE_NAME = 'debtcontrol-v3.1.0';
-const STATIC_CACHE = 'debtcontrol-static-v3.1.0';
-const DYNAMIC_CACHE = 'debtcontrol-dynamic-v3.1.0';
+const STATIC_CACHE = 'debtcontrol-static-v4.0.0';
+const DYNAMIC_CACHE = 'debtcontrol-dynamic-v4.0.0';
 
-// Archivos esenciales para cachear (incluye los assets del build)
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -17,22 +15,19 @@ const STATIC_ASSETS = [
   './icons/icon-512.png'
 ];
 
-// Instalar Service Worker
+// Instalar: cachear archivos pero NO activar inmediatamente
+// (permite que el banner de actualización funcione correctamente)
 self.addEventListener('install', (event) => {
-  console.log('[SW] Instalando Service Worker...');
+  console.log('[SW] Instalando v4.0.0...');
   event.waitUntil(
     caches.open(STATIC_CACHE)
-      .then((cache) => {
-        console.log('[SW] Cacheando archivos estáticos...');
-        return cache.addAll(STATIC_ASSETS);
-      })
-      .then(() => self.skipWaiting())
+      .then((cache) => cache.addAll(STATIC_ASSETS))
   );
 });
 
-// Activar Service Worker
+// Activar: limpiar caches antiguos
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activando Service Worker...');
+  console.log('[SW] Activando...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -47,64 +42,51 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Interceptar peticiones
+// Interceptar peticiones (solo mismo origen)
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+  if (url.origin !== location.origin) return;
 
-  // Solo manejar peticiones del mismo origen
-  if (url.origin !== location.origin) {
-    return;
-  }
-
-  // Estrategia: Cache First para assets, Network First para HTML
   if (request.destination === 'document') {
-    // Network First para documentos HTML
     event.respondWith(networkFirst(request));
   } else {
-    // Cache First para assets (JS, CSS, imágenes)
     event.respondWith(cacheFirst(request));
   }
 });
 
-// Estrategia Cache First
+// Cache First para assets
 async function cacheFirst(request) {
-  const cachedResponse = await caches.match(request);
-  if (cachedResponse) {
-    return cachedResponse;
-  }
-
+  const cached = await caches.match(request);
+  if (cached) return cached;
   try {
-    const networkResponse = await fetch(request);
-    if (networkResponse.ok) {
+    const response = await fetch(request);
+    if (response.ok) {
       const cache = await caches.open(DYNAMIC_CACHE);
-      cache.put(request, networkResponse.clone());
+      cache.put(request, response.clone());
     }
-    return networkResponse;
+    return response;
   } catch (error) {
-    console.log('[SW] Error en fetch:', error);
-    // Retornar página offline si existe
     return caches.match('./index.html');
   }
 }
 
-// Estrategia Network First
+// Network First para HTML
 async function networkFirst(request) {
   try {
-    const networkResponse = await fetch(request);
-    if (networkResponse.ok) {
+    const response = await fetch(request);
+    if (response.ok) {
       const cache = await caches.open(DYNAMIC_CACHE);
-      cache.put(request, networkResponse.clone());
+      cache.put(request, response.clone());
     }
-    return networkResponse;
+    return response;
   } catch (error) {
-    console.log('[SW] Offline, sirviendo desde cache');
-    const cachedResponse = await caches.match(request);
-    return cachedResponse || caches.match('./index.html');
+    const cached = await caches.match(request);
+    return cached || caches.match('./index.html');
   }
 }
 
-// Escuchar mensajes
+// Solo activar nueva versión cuando el usuario lo pida (via banner)
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();

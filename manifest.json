@@ -1,0 +1,43 @@
+{
+  "name": "DebtControl Pro",
+  "short_name": "DebtControl",
+  "description": "Gestión inteligente de deudas, ahorros e inversiones personales",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8f9fa",
+  "theme_color": "#007AFF",
+  "orientation": "portrait-primary",
+  "scope": "./",
+  "id": "/debtcontrol/",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [],
+  "categories": ["finance", "productivity", "utilities"],
+  "lang": "es",
+  "dir": "ltr",
+  "prefer_related_applications": false
+}

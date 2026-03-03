@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
+    <meta name="theme-color" content="#007AFF" />
+    <meta name="description" content="DebtControl Pro - Gestión inteligente de deudas y finanzas personales" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="DebtControl" />
+    <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png" />
+    <title>DebtControl Pro - Gestión de Deudas</title>
+    <link rel="manifest" href="./manifest.json" />
+    <style>
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      #root { min-height: 100vh; }
+      /* Pantalla de carga mientras carga la app */
+      .loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        z-index: 9999;
+      }
+      .loading-screen.hidden { display: none; }
+      .loading-emoji { font-size: 64px; animation: bounce 1s ease-in-out infinite; }
+      .loading-text { font-size: 24px; font-weight: 600; margin-top: 16px; }
+      .loading-sub { font-size: 14px; opacity: 0.8; margin-top: 8px; }
+      @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-Bwgcmo9Q.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/vendor-B-V5UcMf.js">
+    <link rel="modulepreload" crossorigin href="./assets/charts-BiLyBmV-.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-BVK2nLKa.css">
+  </head>
+  <body>
+    <div id="loading" class="loading-screen">
+      <div class="loading-emoji">💰</div>
+      <div class="loading-text">DebtControl Pro</div>
+      <div class="loading-sub">Cargando tu información financiera...</div>
+    </div>
+    <div id="root"></div>
+    <script>
+      // Ocultar pantalla de carga cuando React cargue
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          var loading = document.getElementById('loading');
+          if (loading) loading.classList.add('hidden');
+        }, 500);
+      });
+
+      // Registrar Service Worker para funcionalidad offline
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('./sw.js')
+            .then(function(registration) {
+              console.log('✅ Service Worker registrado:', registration.scope);
+              
+              // Verificar actualizaciones
+              registration.addEventListener('updatefound', function() {
+                console.log('🔄 Nueva versión disponible');
+              });
+            })
+            .catch(function(error) {
+              console.log('❌ Error al registrar Service Worker:', error);
+            });
+        });
+      }
+
+      // Detectar modo offline/online
+      window.addEventListener('online', function() {
+        console.log('📶 Conexión restaurada');
+        // Mostrar indicador visual
+        var toast = document.createElement('div');
+        toast.textContent = '📶 Conexión restaurada';
+        toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#34C759;color:#fff;padding:10px 20px;border-radius:10px;z-index:99999;font-size:14px;font-weight:500;';
+        document.body.appendChild(toast);
+        setTimeout(function() { toast.remove(); }, 3000);
+      });
+      
+      window.addEventListener('offline', function() {
+        console.log('📴 Modo offline activado');
+        var toast = document.createElement('div');
+        toast.textContent = '📴 Sin conexión - Modo offline';
+        toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#FF9500;color:#fff;padding:10px 20px;border-radius:10px;z-index:99999;font-size:14px;font-weight:500;';
+        document.body.appendChild(toast);
+        setTimeout(function() { toast.remove(); }, 3000);
+      });
+
+      // Manejar botón atrás en Android (evitar salir de la app accidentalmente)
+      window.addEventListener('popstate', function(e) {
+        // Prevenir salir de la app en Android
+        history.pushState(null, '', window.location.href);
+      });
+      history.pushState(null, '', window.location.href);
+    </script>
+    <!-- Módulo de sincronización en la nube y backup -->
+    <script defer src="./cloud-sync.js"></script>
+  </body>
+</html>

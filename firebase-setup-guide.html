@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guía: Configurar Firebase para DebtControl Pro</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f7; color: #1d1d1f; line-height: 1.6; }
+  .container { max-width: 720px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 28px; margin-bottom: 8px; }
+  .subtitle { color: #86868b; font-size: 16px; margin-bottom: 32px; }
+  .step { background: #fff; border-radius: 16px; padding: 24px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .step-num { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: linear-gradient(135deg, #007AFF, #5856D6); color: #fff; border-radius: 50%; font-weight: 700; font-size: 14px; margin-right: 12px; flex-shrink: 0; }
+  .step-header { display: flex; align-items: center; margin-bottom: 12px; }
+  .step-title { font-size: 18px; font-weight: 600; }
+  .step p { color: #424245; font-size: 15px; margin-bottom: 8px; }
+  .step ul { padding-left: 20px; color: #424245; font-size: 14px; }
+  .step li { margin-bottom: 4px; }
+  .highlight { background: #007AFF10; border: 1px solid #007AFF30; border-radius: 8px; padding: 12px; margin: 12px 0; font-size: 14px; }
+  .highlight code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: 'SF Mono', monospace; font-size: 13px; }
+  .warning { background: #FF950015; border: 1px solid #FF950030; border-radius: 8px; padding: 12px; margin: 12px 0; font-size: 14px; }
+  .success { background: #34C75915; border: 1px solid #34C75930; border-radius: 8px; padding: 12px; margin: 12px 0; font-size: 14px; }
+  a { color: #007AFF; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .code-block { background: #1d1d1f; color: #f5f5f7; border-radius: 8px; padding: 16px; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; overflow-x: auto; margin: 12px 0; line-height: 1.5; white-space: pre; }
+  .btn { display: inline-block; padding: 12px 24px; border-radius: 12px; background: linear-gradient(135deg, #007AFF, #5856D6); color: #fff; font-size: 16px; font-weight: 600; text-decoration: none; margin-top: 8px; }
+  .btn:hover { opacity: 0.9; text-decoration: none; }
+  .img-placeholder { background: #e9ecef; border-radius: 12px; padding: 40px; text-align: center; margin: 12px 0; color: #86868b; font-size: 36px; }
+  .section-divider { border: none; border-top: 1px solid #e5e5e7; margin: 32px 0; }
+  .faq { margin-top: 24px; }
+  .faq details { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .faq summary { font-weight: 600; font-size: 15px; cursor: pointer; }
+  .faq p { margin-top: 8px; font-size: 14px; color: #424245; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔥 Configurar Firebase</h1>
+  <p class="subtitle">Guía paso a paso para sincronizar DebtControl Pro con la nube (gratis)</p>
+
+  <!-- PASO 1 -->
+  <div class="step">
+    <div class="step-header">
+      <span class="step-num">1</span>
+      <span class="step-title">Crear cuenta y proyecto en Firebase</span>
+    </div>
+    <p>Firebase es un servicio gratuito de Google para almacenar datos en la nube.</p>
+    <ul>
+      <li>Ve a <a href="https://console.firebase.google.com/" target="_blank">console.firebase.google.com</a></li>
+      <li>Inicia sesión con tu cuenta de Google</li>
+      <li>Click en <strong>"Crear un proyecto"</strong> (o "Add project")</li>
+      <li>Nombre del proyecto: escribe algo como <code>debtcontrol</code></li>
+      <li>Desactiva Google Analytics (no se necesita) → Click <strong>"Crear proyecto"</strong></li>
+    </ul>
+    <div class="img-placeholder">📱 → 🌐 console.firebase.google.com</div>
+    <div class="highlight">💡 El plan gratuito (Spark) incluye 1GB de almacenamiento y 10GB de transferencia mensual — más que suficiente para uso personal.</div>
+  </div>
+
+  <!-- PASO 2 -->
+  <div class="step">
+    <div class="step-header">
+      <span class="step-num">2</span>
+      <span class="step-title">Crear la Realtime Database</span>
+    </div>
+    <p>Esta es la base de datos donde se guardarán tus datos.</p>
+    <ul>
+      <li>En el menú izquierdo, busca <strong>"Compilación"</strong> (o "Build")</li>
+      <li>Click en <strong>"Realtime Database"</strong></li>
+      <li>Click en <strong>"Crear base de datos"</strong></li>
+      <li>Selecciona la región más cercana (ej: <code>us-central1</code>)</li>
+      <li><strong>⚠️ IMPORTANTE:</strong> Selecciona <strong>"Iniciar en modo de prueba"</strong> (test mode)</li>
+      <li>Click en <strong>"Habilitar"</strong></li>
+    </ul>
+    <div class="img-placeholder">🗄️ Compilación → Realtime Database → Crear</div>
+    <div class="warning">
+      ⚠️ <strong>Sobre el modo de prueba:</strong> las reglas de prueba expiran en 30 días. Cuando expiren, ve a la pestaña "Reglas" de tu database y reemplaza el contenido con esto:
+    </div>
+    <div class="code-block">{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": true,
+        ".write": true
+      }
+    }
+  }
+}</div>
+    <p style="font-size:13px;color:#86868b">Esto permite leer y escribir dentro de <code>/users/</code>. Para mayor seguridad, puedes usar un PIN de cifrado dentro de la app.</p>
+  </div>
+
+  <!-- PASO 3 -->
+  <div class="step">
+    <div class="step-header">
+      <span class="step-num">3</span>
+      <span class="step-title">Registrar una app Web</span>
+    </div>
+    <p>Esto genera las credenciales que DebtControl necesita para conectarse.</p>
+    <ul>
+      <li>En el menú izquierdo, junto a <strong>"Información general del proyecto"</strong>, hay un ícono ⚙️ → click en <strong>"Configuración del proyecto"</strong></li>
+      <li>Baja hasta la sección <strong>"Tus apps"</strong></li>
+      <li>Click en el botón <strong>&lt;/&gt;</strong> (ícono de Web)</li>
+      <li>Nombre de la app: escribe <code>DebtControl</code></li>
+      <li><strong>NO</strong> marques "Firebase Hosting"</li>
+      <li>Click en <strong>"Registrar app"</strong></li>
+    </ul>
+    <div class="img-placeholder">⚙️ Configuración → Tus apps → &lt;/&gt; Web</div>
+  </div>
+
+  <!-- PASO 4 -->
+  <div class="step">
+    <div class="step-header">
+      <span class="step-num">4</span>
+      <span class="step-title">Copiar la configuración</span>
+    </div>
+    <p>Después de registrar la app, Firebase te mostrará un bloque de código. Busca el objeto <code>firebaseConfig</code>:</p>
+    <div class="code-block">const firebaseConfig = {
+  apiKey: "AIzaSyB1234567890abcdefg",
+  authDomain: "debtcontrol-abc12.firebaseapp.com",
+  databaseURL: "https://debtcontrol-abc12-default-rtdb.firebaseio.com",
+  projectId: "debtcontrol-abc12",
+  storageBucket: "debtcontrol-abc12.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abcdef123456"
+};</div>
+    <div class="highlight">
+      📋 <strong>Copia TODO este bloque</strong> (desde <code>{</code> hasta <code>}</code>). Lo necesitarás en el siguiente paso.
+    </div>
+    <p style="font-size:13px;color:#86868b">Si ya cerraste esta ventana, puedes volver a ver la config en: Configuración del proyecto → Tus apps → Config</p>
+  </div>
+
+  <!-- PASO 5 -->
+  <div class="step">
+    <div class="step-header">
+      <span class="step-num">5</span>
+      <span class="step-title">Pegar la configuración en DebtControl</span>
+    </div>
+    <p>¡Último paso! Ahora conecta la app con tu Firebase.</p>
+    <ul>
+      <li>Abre DebtControl Pro en tu navegador o celular</li>
+      <li>Toca el botón <strong>☁️</strong> (esquina inferior derecha)</li>
+      <li>Toca <strong>"⚙️ Configurar Firebase"</strong></li>
+      <li>Pega el JSON copiado en la caja de texto y toca <strong>"📋 Parsear JSON"</strong></li>
+      <li>Los campos se llenarán automáticamente</li>
+      <li>Toca <strong>"💾 Guardar y Conectar"</strong></li>
+    </ul>
+    <div class="success">
+      ✅ Si ves el indicador verde en el botón ☁️, ¡estás conectado! Ya puedes usar "Subir a la Nube" y "Descargar de la Nube".
+    </div>
+  </div>
+
+  <hr class="section-divider">
+
+  <!-- SYNC ENTRE DISPOSITIVOS -->
+  <h2 style="font-size:22px;margin-bottom:16px">📱 Sincronizar entre dispositivos</h2>
+  
+  <div class="step">
+    <div class="step-header">
+      <span class="step-num">A</span>
+      <span class="step-title">Dispositivo principal</span>
+    </div>
+    <ul>
+      <li>Configura Firebase (pasos 1-5 de arriba)</li>
+      <li>Toca ☁️ → ⚙️ Configurar Firebase</li>
+      <li>Copia tu <strong>"ID de sincronización"</strong></li>
+      <li>Sube tus datos: ☁️ → <strong>"⬆️ Subir a la Nube"</strong></li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <div class="step-header">
+      <span class="step-num">B</span>
+      <span class="step-title">Segundo dispositivo</span>
+    </div>
+    <ul>
+      <li>Abre DebtControl Pro</li>
+      <li>Configura Firebase con los <strong>mismos datos</strong> (mismo proyecto)</li>
+      <li>Toca ☁️ → ⚙️ → <strong>"✏️ Cambiar ID"</strong></li>
+      <li>Pega el ID del dispositivo principal</li>
+      <li>Toca ☁️ → <strong>"⬇️ Descargar de la Nube"</strong></li>
+    </ul>
+    <div class="success">✅ ¡Listo! Ambos dispositivos comparten los mismos datos.</div>
+  </div>
+
+  <hr class="section-divider">
+
+  <!-- PIN DE CIFRADO -->
+  <h2 style="font-size:22px;margin-bottom:16px">🔒 PIN de cifrado (opcional)</h2>
+  <div class="step">
+    <p>Si quieres que nadie más pueda leer tus datos en Firebase:</p>
+    <ul>
+      <li>Toca ☁️ → ⚙️ → Escribe un PIN y toca <strong>"Guardar"</strong></li>
+      <li>Los datos se cifran <strong>antes</strong> de subirse a la nube</li>
+      <li>Usa <strong>el mismo PIN</strong> en todos tus dispositivos</li>
+      <li>Si olvidas el PIN, no podrás recuperar los datos de la nube</li>
+    </ul>
+  </div>
+
+  <hr class="section-divider">
+
+  <!-- FAQ -->
+  <h2 style="font-size:22px;margin-bottom:16px">❓ Preguntas frecuentes</h2>
+  <div class="faq">
+    <details>
+      <summary>¿Firebase es gratis?</summary>
+      <p>Sí. El plan Spark (gratuito) incluye 1GB de almacenamiento en Realtime Database y 10GB de transferencia mensual. Para uso personal es más que suficiente.</p>
+    </details>
+    <details>
+      <summary>¿Necesito tarjeta de crédito?</summary>
+      <p>No. Puedes usar Firebase con el plan gratuito sin ingresar datos de pago.</p>
+    </details>
+    <details>
+      <summary>¿Qué pasa si no configuro Firebase?</summary>
+      <p>La app funciona perfectamente sin Firebase. Todos los datos se guardan localmente. Solo necesitas Firebase si quieres sincronizar entre dispositivos o tener respaldo en la nube.</p>
+    </details>
+    <details>
+      <summary>¿Puedo usar backup JSON sin Firebase?</summary>
+      <p>Sí. Los botones "Exportar Backup" e "Importar Backup" funcionan sin Firebase. Generan un archivo .json que puedes guardar donde quieras.</p>
+    </details>
+    <details>
+      <summary>¿Las reglas de prueba expiran?</summary>
+      <p>Sí, las reglas de "modo de prueba" expiran en 30 días. Ve a Realtime Database → Reglas y actualízalas con las reglas que se muestran en el Paso 2.</p>
+    </details>
+    <details>
+      <summary>¿Mis datos están seguros?</summary>
+      <p>Los datos se guardan en tu proyecto personal de Firebase (solo tú tienes acceso a la consola). Para mayor seguridad, activa un PIN de cifrado dentro de la app — así los datos se cifran antes de subirse.</p>
+    </details>
+    <details>
+      <summary>¿Puedo hospedar la app sin XAMPP?</summary>
+      <p>Sí. Puedes subir los archivos a GitHub Pages (gratis) o cualquier hosting estático. La app no necesita servidor backend — todo funciona en el navegador.</p>
+    </details>
+  </div>
+
+  <hr class="section-divider">
+  <p style="text-align:center;color:#86868b;font-size:13px">DebtControl Pro — Guía de configuración Firebase</p>
+  <p style="text-align:center;margin-top:12px"><a href="./index.html" class="btn">← Volver a DebtControl</a></p>
+</div>
+</body>
+</html>

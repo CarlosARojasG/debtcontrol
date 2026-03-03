@@ -1,12 +1,13 @@
-const CACHE_NAME = 'debtcontrol-v2.5.0';
-const STATIC_CACHE = 'debtcontrol-static-v2.5.0';
-const DYNAMIC_CACHE = 'debtcontrol-dynamic-v2.5.0';
+const CACHE_NAME = 'debtcontrol-v2.6.0';
+const STATIC_CACHE = 'debtcontrol-static-v2.6.0';
+const DYNAMIC_CACHE = 'debtcontrol-dynamic-v2.6.0';
 
 // Archivos esenciales para cachear (incluye los assets del build)
 const STATIC_ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './site-guard.js',
   './cloud-sync.js',
   './assets/index-Bwgcmo9Q.js',
   './assets/vendor-B-V5UcMf.js',

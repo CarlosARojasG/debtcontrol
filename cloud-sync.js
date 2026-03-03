@@ -615,7 +615,8 @@
       { icon: '\u2B06\uFE0F', label: 'Subir a la Nube', action: syncToCloud },
       { icon: '\u2B07\uFE0F', label: 'Descargar de la Nube', action: syncFromCloud },
       { sep: true },
-      { icon: '\u2699\uFE0F', label: 'Configurar Firebase', action: showFirebaseSetup }
+      { icon: '\u2699\uFE0F', label: 'Configurar Firebase', action: showFirebaseSetup },
+      { icon: '\uD83D\uDD12', label: 'Cambiar C\u00f3digo de Acceso', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.changeCode(); else showToast('Guard no disponible'); } }
     ];
 
     items.forEach(function(item) {

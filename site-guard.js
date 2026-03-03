@@ -1,5 +1,5 @@
 /**
- * DebtControl Pro - Site Guard v5.0
+ * DebtControl Pro - Site Guard v6.0.0
  * Protección de acceso con código maestro
  *
  * v5.0 - WebAuthn biométrico, rate limiting en nuevo dispositivo

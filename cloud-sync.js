@@ -1,6 +1,21 @@
 /**
- * DebtControl Pro - Cloud Sync Module v6.0.0
+ * DebtControl Pro - Cloud Sync Module v7.0.0
  * Sincronización + herramientas financieras
+ *
+ * v7.0 cambios:
+ * - Fix applyCurrencyToDOM: $ en regex replace ya no corrompe símbolos multi-carácter
+ * - Fix PDF: rendimiento 0% ya no muestra como '-'
+ * - Fix notificaciones: ahora avisa el mismo día del vencimiento (día 0)
+ * - Fix DTI: porcentaje disponible negativo se muestra correctamente
+ * - Menú con títulos de sección (Archivo, Nube, Planificación, Herramientas, Ajustes)
+ * - CSV export incluye recordatorios (reminders)
+ * - Historial de sync con botón Limpiar
+ * - Calendario muestra recordatorios con indicador morado
+ * - Calculadora amortización: botón Copiar tabla al portapapeles
+ * - Calculadora Fecha Libre de Deudas (proyección + pago extra)
+ * - Comparador de Préstamos (lado a lado)
+ * - Desglose de deudas por Categoría (barras + porcentajes)
+ * - Accesos rápidos de teclado (Ctrl+E/P/U/D/F/K)
  *
  * v6.0 cambios:
  * - Exportar a CSV para Excel/Sheets
@@ -34,7 +49,7 @@
   // Constantes
   // ============================================================
   var SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
-  var SYNC_VERSION = '6.0.0';
+  var SYNC_VERSION = '7.0.0';
   var DB_URL_KEY = 'debtcontrol_guard_dburl';
   var LS_LEGACY_CONFIG = 'debtcontrol_firebase_config';
   var LS_SYNC_ID = 'debtcontrol_sync_id';
@@ -199,11 +214,12 @@
         var text = node.textContent;
         var replaced = text;
         // Reemplazar $ seguido de número, solo si $ no está precedido por letra
-        replaced = replaced.replace(/(^|[^A-Za-z])\$(\d)/g, '$1' + sym + '$2');
+        // Usar función para evitar que $ en sym se interprete como referencia regex
+        replaced = replaced.replace(/(^|[^A-Za-z])\$(\d)/g, function(_, pre, digit) { return pre + sym + digit; });
         // Si hay símbolo previo diferente, reemplazarlo también
         if (escPrev && escPrev !== '\\$' && sym !== prevCurrencySymbol) {
           var prevRegex = new RegExp(escPrev + '(\\d)', 'g');
-          replaced = replaced.replace(prevRegex, sym + '$1');
+          replaced = replaced.replace(prevRegex, function(_, digit) { return sym + digit; });
         }
         if (replaced !== text) {
           replacing = true;
@@ -487,6 +503,22 @@
             parseFloat(inv.returnRate || inv.rendimiento || 0)
           ].join(','));
         });
+        lines.push('');
+      }
+
+      // Recordatorios
+      var reminders = data.reminders || [];
+      if (reminders.length > 0) {
+        lines.push('=== RECORDATORIOS ===');
+        lines.push('T\u00edtulo,Fecha,Descripci\u00f3n,Recurrente');
+        reminders.forEach(function(r) {
+          lines.push([
+            '"' + (r.title || r.titulo || '').replace(/"/g, '""') + '"',
+            r.date || r.fecha || '',
+            '"' + (r.description || r.descripcion || '').replace(/"/g, '""') + '"',
+            r.recurring || r.recurrente || 'no'
+          ].join(','));
+        });
       }
 
       var bom = '\uFEFF'; // BOM para Excel
@@ -564,21 +596,27 @@
       + '\u2022 Calculadora de amortizaci\u00f3n<br>'
       + '\u2022 Estrategia Snowball vs Avalanche<br>'
       + '\u2022 Ratio Deuda/Ingreso (DTI)<br>'
+      + '\u2022 Fecha Libre de Deudas + Comparador de Pr\u00e9stamos<br>'
+      + '\u2022 Desglose por Categor\u00eda<br>'
       + '\u2022 Calendario y notificaciones<br>'
       + '\u2022 Seguridad: c\u00f3digo + biometr\u00eda<br>'
+      + '\u2022 Accesos r\u00e1pidos de teclado (Ctrl+E/P/U/D/F/K)<br>'
       + '\u2022 Funciona offline (PWA)</div></div>'
       + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:14px;margin-bottom:16px;text-align:left">'
       + '<div style="font-size:13px;font-weight:600;margin-bottom:8px">\uD83D\uDCDD Changelog v' + SYNC_VERSION + '</div>'
       + '<div style="font-size:12px;color:' + t.muted + ';line-height:1.8">'
-      + '\u2022 Exportaci\u00f3n CSV para Excel<br>'
-      + '\u2022 Snapshot pre-sync con undo<br>'
-      + '\u2022 Calculadora ratio DTI<br>'
-      + '\u2022 Progreso visual por deuda<br>'
-      + '\u2022 Pantalla Acerca de<br>'
-      + '\u2022 Auto-sync configurable<br>'
-      + '\u2022 Fix tema oscuro del sistema<br>'
-      + '\u2022 Fix posicionamiento del men\u00fa<br>'
-      + '\u2022 Backup con preferencias del usuario</div></div>'
+      + '\u2022 Calculadora Fecha Libre de Deudas<br>'
+      + '\u2022 Comparador de Pr\u00e9stamos lado a lado<br>'
+      + '\u2022 Desglose de deudas por Categor\u00eda<br>'
+      + '\u2022 Accesos r\u00e1pidos de teclado<br>'
+      + '\u2022 Men\u00fa con t\u00edtulos de secci\u00f3n<br>'
+      + '\u2022 CSV incluye recordatorios<br>'
+      + '\u2022 Calendario muestra recordatorios<br>'
+      + '\u2022 Limpiar historial de sync<br>'
+      + '\u2022 Copiar tabla de amortizaci\u00f3n<br>'
+      + '\u2022 Fix moneda $ en reemplazos DOM<br>'
+      + '\u2022 Fix notificaci\u00f3n d\u00eda del vencimiento<br>'
+      + '\u2022 Fix DTI disponible negativo</div></div>'
       + '<div style="font-size:11px;color:' + t.muted + ';margin-bottom:16px">'
       + 'Desarrollado con \u2764\uFE0F<br>'
       + 'React 19 \u2022 Vite \u2022 PWA \u2022 Firebase REST</div>'
@@ -662,12 +700,355 @@
         + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">'
         + '<div><div style="font-size:11px;color:' + t.muted + '">Deuda mensual</div><div style="font-size:16px;font-weight:600">' + currency + formatNumber(debtAmt) + '</div></div>'
         + '<div><div style="font-size:11px;color:' + t.muted + '">Ingreso mensual</div><div style="font-size:16px;font-weight:600">' + currency + formatNumber(income) + '</div></div>'
-        + '<div><div style="font-size:11px;color:' + t.muted + '">Disponible</div><div style="font-size:16px;font-weight:600;color:#34C759">' + currency + formatNumber(income - debtAmt) + '</div></div>'
-        + '<div><div style="font-size:11px;color:' + t.muted + '">% Disponible</div><div style="font-size:16px;font-weight:600;color:#34C759">' + (100 - dti).toFixed(1) + '%</div></div></div>'
+        + '<div><div style="font-size:11px;color:' + t.muted + '">Disponible</div><div style="font-size:16px;font-weight:600;color:' + (income - debtAmt >= 0 ? '#34C759' : '#FF3B30') + '">' + (income - debtAmt < 0 ? '-' : '') + currency + formatNumber(Math.abs(income - debtAmt)) + '</div></div>'
+        + '<div><div style="font-size:11px;color:' + t.muted + '">% Disponible</div><div style="font-size:16px;font-weight:600;color:' + (dti <= 100 ? '#34C759' : '#FF3B30') + '">' + Math.max(0, 100 - dti).toFixed(1) + '%' + (dti > 100 ? ' \u26A0\uFE0F' : '') + '</div></div></div>'
         + '<div style="font-size:12px;color:' + t.muted + ';line-height:1.5;text-align:left;background:' + t.bg + ';border-radius:8px;padding:10px">\uD83D\uDCA1 ' + advice + '</div></div>';
 
       card.querySelector('.dc-dti-result').innerHTML = html;
     });
+  }
+
+  // ============================================================
+  // Calculadora: Fecha Libre de Deudas
+  // ============================================================
+  async function showDebtFreeDate() {
+    var data = await getAllLocalData();
+    var t = getThemeColors();
+    var currency = getCurrency();
+    var debts = (data.debts || []).filter(function(d) {
+      return parseFloat(d.amount || d.totalAmount || d.monto || 0) > 0;
+    });
+    var payments = data.payments || [];
+
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '420px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    if (debts.length === 0) {
+      card.innerHTML = '<div style="text-align:center;padding:20px">'
+        + '<div style="font-size:48px;margin-bottom:12px">\uD83C\uDF89</div>'
+        + '<h2 style="margin:0 0 8px 0;font-size:18px">\u00a1Sin deudas!</h2>'
+        + '<p style="color:' + t.muted + ';font-size:14px">No tienes deudas activas. \u00a1Felicidades!</p>'
+        + '<button class="dc-df-close" style="padding:12px 24px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:14px;cursor:pointer;margin-top:12px">Cerrar</button></div>';
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      card.querySelector('.dc-df-close').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      return;
+    }
+
+    var totalDebt = debts.reduce(function(s, d) { return s + parseFloat(d.amount || d.totalAmount || d.monto || 0); }, 0);
+    var totalMonthlyPay = debts.reduce(function(s, d) {
+      return s + parseFloat(d.monthlyPayment || d.cuota || d.minimumPayment || 0);
+    }, 0);
+
+    // Calcular pagos mensuales promedio de los últimos 6 meses
+    var now = new Date();
+    var sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    var recentPayments = payments.filter(function(p) {
+      var d = new Date(p.date || p.fecha || '');
+      return d >= sixMonthsAgo;
+    });
+    var avgMonthlyPayment = recentPayments.length > 0
+      ? recentPayments.reduce(function(s, p) { return s + parseFloat(p.amount || p.monto || 0); }, 0) / 6
+      : totalMonthlyPay;
+
+    var iSt = 'width:100%;padding:12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;box-sizing:border-box;margin-top:6px;outline:none;';
+
+    card.innerHTML = ''
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:18px">\uD83C\uDFC1 Fecha Libre de Deudas</h2>'
+      + '<button class="dc-df-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button></div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:14px;margin-bottom:16px">'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+      + '<div><div style="font-size:11px;color:' + t.muted + '">Deuda total</div><div style="font-size:16px;font-weight:700;color:#FF3B30">' + currency + formatNumber(totalDebt) + '</div></div>'
+      + '<div><div style="font-size:11px;color:' + t.muted + '">Pago promedio/mes</div><div style="font-size:16px;font-weight:700;color:#007AFF">' + currency + formatNumber(avgMonthlyPayment) + '</div></div>'
+      + '</div></div>'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Pago mensual estimado (' + currency + ')</label>'
+      + '<input class="dc-df-monthly" type="number" value="' + Math.round(avgMonthlyPayment) + '" style="' + iSt + '">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + ';display:block;margin-top:12px">Pago extra mensual (' + currency + ')</label>'
+      + '<input class="dc-df-extra" type="number" value="0" placeholder="0" style="' + iSt + '">'
+      + '<button class="dc-df-calc" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:16px">\uD83C\uDFC1 Calcular Fecha</button>'
+      + '<div class="dc-df-result" style="margin-top:16px"></div>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    card.querySelector('.dc-df-close').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    card.querySelector('.dc-df-calc').addEventListener('click', function() {
+      var monthly = parseFloat(card.querySelector('.dc-df-monthly').value) || 0;
+      var extra = parseFloat(card.querySelector('.dc-df-extra').value) || 0;
+      var totalPay = monthly + extra;
+      if (totalPay <= 0) { showToast('\u26A0\uFE0F Ingresa un pago mensual'); return; }
+
+      // Simulación simplificada (promedio de tasas)
+      var avgRate = debts.reduce(function(s, d) { return s + parseFloat(d.interestRate || d.tasaInteres || 0); }, 0) / debts.length;
+      var monthlyRate = avgRate / 100 / 12;
+      var balance = totalDebt;
+      var months = 0;
+      var totalInterest = 0;
+
+      while (balance > 0.01 && months < 600) {
+        months++;
+        var interest = balance * monthlyRate;
+        totalInterest += interest;
+        balance += interest;
+        var pay = Math.min(totalPay, balance);
+        balance -= pay;
+      }
+
+      if (months >= 600) {
+        card.querySelector('.dc-df-result').innerHTML = '<div style="background:#FF3B3020;border-radius:12px;padding:16px;text-align:center">'
+          + '<div style="font-size:40px;margin-bottom:8px">\u26A0\uFE0F</div>'
+          + '<div style="font-size:14px;font-weight:600;color:#FF3B30">Con ese pago nunca liquidar\u00e1s la deuda</div>'
+          + '<div style="font-size:12px;color:' + t.muted + ';margin-top:4px">Necesitas pagar m\u00e1s que los intereses generados.</div></div>';
+        return;
+      }
+
+      var freeDate = new Date();
+      freeDate.setMonth(freeDate.getMonth() + months);
+      var years = Math.floor(months / 12);
+      var remainMonths = months % 12;
+      var timeStr = (years > 0 ? years + ' a\u00f1o' + (years !== 1 ? 's' : '') + ' ' : '') + remainMonths + ' mes' + (remainMonths !== 1 ? 'es' : '');
+
+      // Comparación con y sin extra
+      var monthsNoExtra = 0;
+      if (extra > 0) {
+        var bal2 = totalDebt;
+        while (bal2 > 0.01 && monthsNoExtra < 600) {
+          monthsNoExtra++;
+          bal2 += bal2 * monthlyRate;
+          bal2 -= Math.min(monthly, bal2);
+        }
+      }
+
+      var resultHtml = '<div style="background:linear-gradient(135deg,#34C759,#30D158);border-radius:16px;padding:20px;text-align:center;color:#fff">'
+        + '<div style="font-size:40px;margin-bottom:4px">\uD83C\uDFC1</div>'
+        + '<div style="font-size:14px;opacity:0.9">Libre de deudas el</div>'
+        + '<div style="font-size:24px;font-weight:700;margin:4px 0">' + freeDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' }) + '</div>'
+        + '<div style="font-size:13px;opacity:0.85">' + timeStr + ' (' + months + ' meses)</div>'
+        + '<div style="font-size:12px;opacity:0.7;margin-top:8px">Inter\u00e9s total estimado: ' + currency + formatNumber(totalInterest) + '</div>'
+        + '</div>';
+
+      if (extra > 0 && monthsNoExtra > months && monthsNoExtra < 600) {
+        var saved = monthsNoExtra - months;
+        resultHtml += '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px;margin-top:10px;text-align:center">'
+          + '<div style="font-size:12px;color:' + t.muted + '">\uD83D\uDCA1 El pago extra de ' + currency + formatNumber(extra) + '/mes te ahorra</div>'
+          + '<div style="font-size:18px;font-weight:700;color:#34C759;margin-top:4px">' + saved + ' mes' + (saved !== 1 ? 'es' : '') + '</div></div>';
+      }
+
+      card.querySelector('.dc-df-result').innerHTML = resultHtml;
+    });
+  }
+
+  // ============================================================
+  // Comparador de Préstamos
+  // ============================================================
+  function showLoanComparator() {
+    var t = getThemeColors();
+    var currency = getCurrency();
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '440px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    var iSt = 'width:100%;padding:10px;border-radius:8px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:13px;box-sizing:border-box;margin-top:4px;outline:none;';
+
+    card.innerHTML = ''
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:18px">\uD83D\uDD0D Comparar Pr\u00e9stamos</h2>'
+      + '<button class="dc-lc-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button></div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px">'
+      + '<div style="font-size:13px;font-weight:700;text-align:center;margin-bottom:8px;color:#007AFF">Opci\u00f3n A</div>'
+      + '<label style="font-size:11px;color:' + t.muted + '">Monto (' + currency + ')</label>'
+      + '<input class="dc-lc-a-amount" type="number" placeholder="10000" style="' + iSt + '">'
+      + '<label style="font-size:11px;color:' + t.muted + '">Tasa anual (%)</label>'
+      + '<input class="dc-lc-a-rate" type="number" placeholder="12" step="0.1" style="' + iSt + '">'
+      + '<label style="font-size:11px;color:' + t.muted + '">Plazo (meses)</label>'
+      + '<input class="dc-lc-a-term" type="number" placeholder="24" style="' + iSt + '">'
+      + '</div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px">'
+      + '<div style="font-size:13px;font-weight:700;text-align:center;margin-bottom:8px;color:#5856D6">Opci\u00f3n B</div>'
+      + '<label style="font-size:11px;color:' + t.muted + '">Monto (' + currency + ')</label>'
+      + '<input class="dc-lc-b-amount" type="number" placeholder="10000" style="' + iSt + '">'
+      + '<label style="font-size:11px;color:' + t.muted + '">Tasa anual (%)</label>'
+      + '<input class="dc-lc-b-rate" type="number" placeholder="15" step="0.1" style="' + iSt + '">'
+      + '<label style="font-size:11px;color:' + t.muted + '">Plazo (meses)</label>'
+      + '<input class="dc-lc-b-term" type="number" placeholder="36" style="' + iSt + '">'
+      + '</div></div>'
+      + '<button class="dc-lc-calc" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:16px">\uD83D\uDD0D Comparar</button>'
+      + '<div class="dc-lc-result" style="margin-top:16px"></div>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    card.querySelector('.dc-lc-close').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    card.querySelector('.dc-lc-calc').addEventListener('click', function() {
+      function calc(amount, rate, term) {
+        if (!amount || !rate || !term || amount <= 0 || rate <= 0 || term <= 0) return null;
+        var mr = rate / 100 / 12;
+        var payment = amount * (mr * Math.pow(1 + mr, term)) / (Math.pow(1 + mr, term) - 1);
+        var totalPaid = payment * term;
+        return { payment: payment, totalPaid: totalPaid, totalInterest: totalPaid - amount, amount: amount, rate: rate, term: term };
+      }
+
+      var a = calc(
+        parseFloat(card.querySelector('.dc-lc-a-amount').value),
+        parseFloat(card.querySelector('.dc-lc-a-rate').value),
+        parseInt(card.querySelector('.dc-lc-a-term').value)
+      );
+      var b = calc(
+        parseFloat(card.querySelector('.dc-lc-b-amount').value),
+        parseFloat(card.querySelector('.dc-lc-b-rate').value),
+        parseInt(card.querySelector('.dc-lc-b-term').value)
+      );
+
+      if (!a || !b) { showToast('\u26A0\uFE0F Completa todos los campos de ambas opciones'); return; }
+
+      var winnerInterest = a.totalInterest <= b.totalInterest ? 'A' : 'B';
+      var winnerPayment = a.payment <= b.payment ? 'A' : 'B';
+
+      function optionCard(opt, label, color, isWinner) {
+        return '<div style="background:' + (isWinner ? color + '15' : t.inputBg) + ';border:2px solid ' + (isWinner ? color : 'transparent') + ';border-radius:12px;padding:14px;text-align:center">'
+          + '<div style="font-size:14px;font-weight:700;color:' + color + ';margin-bottom:8px">' + label + (isWinner ? ' \uD83C\uDFC6' : '') + '</div>'
+          + '<div style="font-size:11px;color:' + t.muted + '">Cuota mensual</div>'
+          + '<div style="font-size:18px;font-weight:700">' + currency + formatNumber(opt.payment) + '</div>'
+          + '<div style="font-size:11px;color:' + t.muted + ';margin-top:6px">Total a pagar</div>'
+          + '<div style="font-size:15px;font-weight:600">' + currency + formatNumber(opt.totalPaid) + '</div>'
+          + '<div style="font-size:11px;color:' + t.muted + ';margin-top:6px">Total intereses</div>'
+          + '<div style="font-size:15px;font-weight:600;color:#FF3B30">' + currency + formatNumber(opt.totalInterest) + '</div>'
+          + '<div style="font-size:11px;color:' + t.muted + ';margin-top:6px">' + opt.rate + '% \u2022 ' + opt.term + ' meses</div></div>';
+      }
+
+      var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+        + optionCard(a, 'Opci\u00f3n A', '#007AFF', winnerInterest === 'A')
+        + optionCard(b, 'Opci\u00f3n B', '#5856D6', winnerInterest === 'B')
+        + '</div>';
+
+      var diff = Math.abs(a.totalInterest - b.totalInterest);
+      if (diff > 0.01) {
+        html += '<div style="background:#34C75920;border-radius:12px;padding:12px;text-align:center">'
+          + '<div style="font-size:13px;font-weight:600">\uD83D\uDCA1 Opci\u00f3n ' + winnerInterest + ' te ahorra en intereses</div>'
+          + '<div style="font-size:20px;font-weight:700;color:#34C759;margin:4px 0">' + currency + formatNumber(diff) + '</div>';
+        if (winnerPayment !== winnerInterest) {
+          html += '<div style="font-size:11px;color:' + t.muted + '">Pero Opci\u00f3n ' + winnerPayment + ' tiene cuota m\u00e1s baja (' + currency + formatNumber(winnerPayment === 'A' ? a.payment : b.payment) + '/mes)</div>';
+        }
+        html += '</div>';
+      }
+
+      card.querySelector('.dc-lc-result').innerHTML = html;
+    });
+  }
+
+  // ============================================================
+  // Resumen por Categoría
+  // ============================================================
+  async function showCategoryBreakdown() {
+    var data = await getAllLocalData();
+    var t = getThemeColors();
+    var currency = getCurrency();
+    var debts = data.debts || [];
+
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '420px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    if (debts.length === 0) {
+      card.innerHTML = '<div style="text-align:center;padding:20px">'
+        + '<div style="font-size:48px;margin-bottom:12px">\uD83D\uDCCA</div>'
+        + '<h2 style="margin:0 0 8px 0;font-size:18px">Desglose por Categor\u00eda</h2>'
+        + '<p style="color:' + t.muted + ';font-size:14px">No hay deudas para analizar.</p>'
+        + '<button class="dc-cat-close" style="padding:12px 24px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:14px;cursor:pointer;margin-top:12px">Cerrar</button></div>';
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      card.querySelector('.dc-cat-close').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      return;
+    }
+
+    // Agrupar por categoría
+    var categories = {};
+    var totalDebt = 0;
+    debts.forEach(function(d) {
+      var cat = d.category || d.categoria || 'Sin categor\u00eda';
+      var amount = parseFloat(d.amount || d.totalAmount || d.monto || 0);
+      totalDebt += amount;
+      if (!categories[cat]) categories[cat] = { total: 0, count: 0, debts: [] };
+      categories[cat].total += amount;
+      categories[cat].count++;
+      categories[cat].debts.push({ name: d.name || d.nombre || 'Deuda', amount: amount });
+    });
+
+    // Ordenar por total descendiente
+    var sorted = Object.keys(categories).sort(function(a, b) { return categories[b].total - categories[a].total; });
+
+    var colors = ['#007AFF', '#FF3B30', '#FF9500', '#34C759', '#5856D6', '#AF52DE', '#FF2D55', '#5AC8FA'];
+
+    var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:18px">\uD83D\uDCCA Desglose por Categor\u00eda</h2>'
+      + '<button class="dc-cat-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button></div>';
+
+    // Barra total
+    html += '<div style="background:' + t.inputBg + ';border-radius:12px;padding:14px;margin-bottom:16px;text-align:center">'
+      + '<div style="font-size:11px;color:' + t.muted + '">Deuda Total</div>'
+      + '<div style="font-size:24px;font-weight:700;color:#FF3B30">' + currency + formatNumber(totalDebt) + '</div>'
+      + '<div style="font-size:11px;color:' + t.muted + '">' + debts.length + ' deuda' + (debts.length !== 1 ? 's' : '') + ' en ' + sorted.length + ' categor\u00eda' + (sorted.length !== 1 ? 's' : '') + '</div></div>';
+
+    // Barra de composición horizontal
+    html += '<div style="display:flex;border-radius:8px;overflow:hidden;height:24px;margin-bottom:16px">';
+    sorted.forEach(function(cat, idx) {
+      var pct = (categories[cat].total / totalDebt) * 100;
+      var color = colors[idx % colors.length];
+      html += '<div title="' + escapeAttr(cat) + ': ' + pct.toFixed(1) + '%" style="width:' + pct + '%;background:' + color + ';min-width:2px"></div>';
+    });
+    html += '</div>';
+
+    // Detalle por categoría
+    sorted.forEach(function(cat, idx) {
+      var info = categories[cat];
+      var pct = (info.total / totalDebt) * 100;
+      var color = colors[idx % colors.length];
+      html += '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px;margin-bottom:8px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+        + '<div style="display:flex;align-items:center;gap:8px">'
+        + '<div style="width:12px;height:12px;border-radius:3px;background:' + color + '"></div>'
+        + '<span style="font-size:14px;font-weight:600">' + escapeHtml(cat) + '</span>'
+        + '<span style="font-size:11px;color:' + t.muted + '">(' + info.count + ')</span></div>'
+        + '<div style="text-align:right"><div style="font-size:14px;font-weight:700">' + currency + formatNumber(info.total) + '</div>'
+        + '<div style="font-size:11px;color:' + t.muted + '">' + pct.toFixed(1) + '%</div></div></div>'
+        + '<div style="background:' + t.border + ';border-radius:4px;height:6px;overflow:hidden">'
+        + '<div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:4px"></div></div>';
+      // Listar deudas individuales
+      info.debts.forEach(function(d) {
+        html += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px;padding:0 4px;color:' + t.muted + '">'
+          + '<span>' + escapeHtml(d.name) + '</span>'
+          + '<span>' + currency + formatNumber(d.amount) + '</span></div>';
+      });
+      html += '</div>';
+    });
+
+    html += '<button class="dc-cat-close2" style="width:100%;padding:12px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:14px;cursor:pointer;margin-top:8px">Cerrar</button>';
+
+    card.innerHTML = html;
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    card.querySelector('.dc-cat-close').addEventListener('click', function() { overlay.remove(); });
+    card.querySelector('.dc-cat-close2').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
   }
 
   // ============================================================
@@ -846,7 +1227,8 @@
           var name = (inv.name || inv.nombre || 'Sin nombre').substring(0, 30);
           var amount = currency + formatNumber(parseFloat(inv.amount || inv.monto || 0));
           var type = (inv.type || inv.tipo || '-').substring(0, 15);
-          var returnRate = (inv.returnRate || inv.rendimiento || '-') + (inv.returnRate || inv.rendimiento ? '%' : '');
+          var rr = inv.returnRate != null ? inv.returnRate : (inv.rendimiento != null ? inv.rendimiento : null);
+          var returnRate = rr !== null ? rr + '%' : '-';
           doc.text(name, 14, y);
           doc.text(amount, 90, y);
           doc.text(type, 130, y);
@@ -1029,6 +1411,25 @@
 
     panel.querySelector('.dc-hist-close').addEventListener('click', function() { overlay.remove(); });
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    // Botón limpiar historial
+    if (history.length > 0) {
+      var clearBtn = document.createElement('button');
+      clearBtn.textContent = '\uD83D\uDDD1\uFE0F Limpiar Historial';
+      Object.assign(clearBtn.style, {
+        width: '100%', padding: '12px', border: '1px solid #FF3B30', borderRadius: '10px',
+        background: 'transparent', color: '#FF3B30', fontSize: '13px', cursor: 'pointer', marginTop: '12px'
+      });
+      clearBtn.addEventListener('click', async function() {
+        var ok = await dcConfirm('\u00bfLimpiar todo el historial de sincronizaci\u00f3n?', { icon: '\uD83D\uDDD1\uFE0F', confirmText: 'Limpiar', danger: true });
+        if (ok) {
+          localStorage.removeItem(LS_SYNC_HISTORY);
+          overlay.remove();
+          showToast('\u2705 Historial limpiado');
+        }
+      });
+      panel.appendChild(clearBtn);
+    }
   }
 
   // ============================================================
@@ -1100,7 +1501,15 @@
       var name = d.name || d.nombre || d.description || 'Deuda';
       var amount = getCurrency() + formatNumber(parseFloat(d.monthlyPayment || d.cuota || d.amount || d.monto || 0));
 
-      if (prefs.daysBefore.indexOf(diffDays) !== -1) {
+      if (diffDays === 0) {
+        new Notification('DebtControl Pro', {
+          body: '\u203C\uFE0F ' + name + ' vence HOY (' + amount + ')',
+          icon: './icons/icon-192.png',
+          tag: 'debt-today-' + debtId,
+          requireInteraction: true
+        });
+        alreadyNotified.push(debtId);
+      } else if (prefs.daysBefore.indexOf(diffDays) !== -1) {
         new Notification('DebtControl Pro', {
           body: '\uD83D\uDCC5 ' + name + ' vence en ' + diffDays + ' d\u00eda' + (diffDays !== 1 ? 's' : '') + ' (' + amount + ')',
           icon: './icons/icon-192.png',
@@ -1224,6 +1633,7 @@
     var data = await getAllLocalData();
     var debts = data.debts || [];
     var payments = data.payments || [];
+    var reminders = data.reminders || [];
     var currentDate = new Date();
     var currentMonth = currentDate.getMonth();
     var currentYear = currentDate.getFullYear();
@@ -1273,7 +1683,26 @@
             name: d.name || d.nombre || 'Deuda',
             amount: parseFloat(d.monthlyPayment || d.cuota || d.amount || d.monto || 0),
             paid: isPaid,
-            overdue: due < today && !isPaid
+            overdue: due < today && !isPaid,
+            type: 'debt'
+          });
+        }
+      });
+
+      // Mapear recordatorios del mes
+      reminders.forEach(function(r) {
+        var rDateStr = r.date || r.fecha || null;
+        if (!rDateStr) return;
+        var rDate = new Date(rDateStr);
+        if (rDate.getMonth() === month && rDate.getFullYear() === year) {
+          var day = rDate.getDate();
+          if (!events[day]) events[day] = [];
+          events[day].push({
+            name: r.title || r.titulo || 'Recordatorio',
+            amount: 0,
+            paid: false,
+            overdue: false,
+            type: 'reminder'
           });
         }
       });
@@ -1304,9 +1733,14 @@
           border2 = '#007AFF';
         }
         if (hasEvents) {
-          var allPaid = events[d].every(function(e) { return e.paid; });
-          var anyOverdue = events[d].some(function(e) { return e.overdue; });
-          if (anyOverdue) {
+          var debtEvents = events[d].filter(function(e) { return e.type !== 'reminder'; });
+          var reminderOnly = debtEvents.length === 0;
+          var allPaid = debtEvents.length > 0 && debtEvents.every(function(e) { return e.paid; });
+          var anyOverdue = debtEvents.some(function(e) { return e.overdue; });
+          if (reminderOnly) {
+            bg = '#5856D620';
+            dots = '<div style="width:6px;height:6px;border-radius:50%;background:#5856D6;margin:2px auto 0"></div>';
+          } else if (anyOverdue) {
             bg = '#FF3B3020';
             dots = '<div style="width:6px;height:6px;border-radius:50%;background:#FF3B30;margin:2px auto 0"></div>';
           } else if (allPaid) {
@@ -1329,8 +1763,8 @@
         + '<h2 style="margin:0;font-size:18px">\uD83D\uDCC5 ' + monthNames[month] + ' ' + year + '</h2>'
         + '<button class="dc-cal-next" style="background:none;border:none;font-size:20px;cursor:pointer;color:' + t.txt + ';padding:8px">\u25B6</button>'
         + '</div>'
-        + '<div style="display:flex;gap:12px;justify-content:center;margin-bottom:12px;font-size:11px">'
-        + '<span>\uD83D\uDD34 Vencido</span><span>\uD83D\uDFE1 Pendiente</span><span>\uD83D\uDFE2 Pagado</span>'
+        + '<div style="display:flex;gap:12px;justify-content:center;margin-bottom:12px;font-size:11px;flex-wrap:wrap">'
+        + '<span>\uD83D\uDD34 Vencido</span><span>\uD83D\uDFE1 Pendiente</span><span>\uD83D\uDFE2 Pagado</span><span>\uD83D\uDFE3 Recordatorio</span>'
         + '</div>'
         + calHtml
         + '<div id="dc-cal-details" style="margin-top:12px;min-height:20px"></div>'
@@ -1366,12 +1800,19 @@
           var currency = getCurrency();
           var html = '';
           dayEvents.forEach(function(ev) {
-            var statusIcon = ev.overdue ? '\uD83D\uDD34' : ev.paid ? '\uD83D\uDFE2' : '\uD83D\uDFE1';
-            var statusText = ev.overdue ? 'Vencida' : ev.paid ? 'Pagada' : 'Pendiente';
-            html += '<div style="background:' + t.inputBg + ';border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">'
-              + '<span style="font-size:13px">' + statusIcon + ' ' + escapeHtml(ev.name) + '</span>'
-              + '<span style="font-size:12px;font-weight:600">' + currency + formatNumber(ev.amount) + ' \u2022 ' + statusText + '</span>'
-              + '</div>';
+            if (ev.type === 'reminder') {
+              html += '<div style="background:' + t.inputBg + ';border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">'
+                + '<span style="font-size:13px">\uD83D\uDCCC ' + escapeHtml(ev.name) + '</span>'
+                + '<span style="font-size:12px;font-weight:500;color:#5856D6">Recordatorio</span>'
+                + '</div>';
+            } else {
+              var statusIcon = ev.overdue ? '\uD83D\uDD34' : ev.paid ? '\uD83D\uDFE2' : '\uD83D\uDFE1';
+              var statusText = ev.overdue ? 'Vencida' : ev.paid ? 'Pagada' : 'Pendiente';
+              html += '<div style="background:' + t.inputBg + ';border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">'
+                + '<span style="font-size:13px">' + statusIcon + ' ' + escapeHtml(ev.name) + '</span>'
+                + '<span style="font-size:12px;font-weight:600">' + currency + formatNumber(ev.amount) + ' \u2022 ' + statusText + '</span>'
+                + '</div>';
+            }
           });
           details.innerHTML = html;
         });
@@ -1973,7 +2414,30 @@
         html += '<tr style="border-bottom:1px solid ' + t.border + '"><td style="padding:5px">' + i + '</td><td style="padding:5px;text-align:right">' + currency + formatNumber(payment) + '</td><td style="padding:5px;text-align:right">' + currency + formatNumber(principal) + '</td><td style="padding:5px;text-align:right">' + currency + formatNumber(interest) + '</td><td style="padding:5px;text-align:right">' + currency + formatNumber(balance) + '</td></tr>';
       }
       html += '</table></div>';
+
+      // Botón copiar tabla
+      html += '<button class="dc-amort-copy" style="width:100%;padding:12px;border:1px solid ' + t.border + ';border-radius:10px;background:transparent;color:' + t.txt + ';font-size:13px;cursor:pointer;margin-top:10px">\uD83D\uDCCB Copiar Tabla al Portapapeles</button>';
+
       card.querySelector('.dc-amort-result').innerHTML = html;
+
+      // Generar texto plano para copiar
+      card.querySelector('.dc-amort-copy').addEventListener('click', function() {
+        var lines = ['# Amortización - ' + currency + formatNumber(amount) + ' al ' + annualRate + '% en ' + months + ' meses'];
+        lines.push('Cuota mensual: ' + currency + formatNumber(payment));
+        lines.push('Total a pagar: ' + currency + formatNumber(totalPaid));
+        lines.push('Total intereses: ' + currency + formatNumber(totalInterest));
+        lines.push('');
+        lines.push('#\tCuota\tCapital\tInterés\tSaldo');
+        var bal2 = amount;
+        for (var j = 1; j <= months; j++) {
+          var int2 = bal2 * monthlyRate;
+          var prin2 = payment - int2;
+          bal2 -= prin2;
+          if (bal2 < 0) bal2 = 0;
+          lines.push(j + '\t' + currency + formatNumber(payment) + '\t' + currency + formatNumber(prin2) + '\t' + currency + formatNumber(int2) + '\t' + currency + formatNumber(bal2));
+        }
+        copyToClipboard(lines.join('\n')).then(function() { showToast('\uD83D\uDCCB Tabla copiada'); });
+      });
     });
   }
 
@@ -2220,24 +2684,32 @@
     });
 
     var items = [
+      { header: '\uD83D\uDCC1 Archivo' },
       { icon: '\uD83D\uDCE5', label: 'Exportar Backup (JSON)', action: exportToJSON },
       { icon: '\uD83D\uDCC4', label: 'Exportar Reporte PDF', action: exportToPDF },
       { icon: '\uD83D\uDCCA', label: 'Exportar CSV (Excel)', action: exportToCSV },
       { icon: '\uD83D\uDCE4', label: 'Importar Backup (JSON)', action: importFromJSON },
       { sep: true },
+      { header: '\u2601\uFE0F Nube' },
       { icon: '\u2B06\uFE0F', label: 'Subir a la Nube', action: syncToCloud },
       { icon: '\u2B07\uFE0F', label: 'Descargar de la Nube', action: syncFromCloud },
       { icon: '\u23EA', label: 'Revertir \u00faltimo Sync', action: restorePreSyncSnapshot },
       { sep: true },
+      { header: '\uD83D\uDCC5 Planificaci\u00f3n' },
       { icon: '\uD83D\uDCC5', label: 'Calendario de Pagos', action: showCalendar },
       { icon: '\uD83D\uDD14', label: 'Notificaciones', action: showNotificationConfig },
       { icon: '\uD83D\uDCB1', label: 'Moneda', action: showCurrencyConfig },
       { sep: true },
+      { header: '\uD83D\uDCCA Herramientas' },
       { icon: '\uD83D\uDCCA', label: 'Resumen Financiero', action: showFinancialSummary },
       { icon: '\uD83E\uDDEE', label: 'Calculadora Amortizaci\u00f3n', action: showAmortizationCalc },
       { icon: '\u2696\uFE0F', label: 'Snowball vs Avalanche', action: showDebtStrategy },
       { icon: '\uD83D\uDCC9', label: 'Ratio Deuda/Ingreso', action: showDTICalculator },
+      { icon: '\uD83C\uDFC1', label: 'Fecha Libre de Deudas', action: showDebtFreeDate },
+      { icon: '\uD83D\uDD0D', label: 'Comparar Pr\u00e9stamos', action: showLoanComparator },
+      { icon: '\uD83D\uDCCA', label: 'Desglose por Categor\u00eda', action: showCategoryBreakdown },
       { sep: true },
+      { header: '\u2699\uFE0F Ajustes' },
       { icon: '\u2699\uFE0F', label: 'Configurar Firebase', action: showFirebaseSetup },
       { icon: '\uD83D\uDCCB', label: 'Historial de Sync', action: showSyncHistory },
       { icon: '\uD83D\uDD12', label: 'Cambiar C\u00f3digo de Acceso', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.changeCode(); else showToast('Guard no disponible'); } },
@@ -2258,6 +2730,17 @@
         s.className = 'dc-sep';
         Object.assign(s.style, { height: '1px', margin: '0' });
         menu.appendChild(s);
+        return;
+      }
+      if (item.header) {
+        var h = document.createElement('div');
+        h.className = 'dc-menu-header';
+        h.textContent = item.header;
+        Object.assign(h.style, {
+          padding: '8px 16px 4px 16px', fontSize: '11px', fontWeight: '700',
+          textTransform: 'uppercase', letterSpacing: '0.5px', opacity: '0.5'
+        });
+        menu.appendChild(h);
         return;
       }
       var btn = document.createElement('button');
@@ -2284,7 +2767,7 @@
     new MutationObserver(applyMenuTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     updateFabBadge();
 
-    // Tecla Escape para cerrar modales
+    // Tecla Escape para cerrar modales + Accesos rápidos de teclado
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
         var overlays = document.querySelectorAll('.dc-modal-overlay, #dc-calendar-overlay, #dc-setup-overlay, #dc-change-code-modal');
@@ -2293,6 +2776,28 @@
         } else {
           var menu = document.getElementById('dc-sync-menu');
           if (menu && menu.style.display !== 'none') menu.style.display = 'none';
+        }
+        return;
+      }
+      // Accesos rápidos (Ctrl/Cmd + tecla) — solo si no hay modal/input abierto
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        var tag = (document.activeElement || {}).tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        var hasModal = document.querySelector('.dc-modal-overlay, #dc-calendar-overlay, #dc-setup-overlay, #dc-change-code-modal');
+        if (hasModal) return;
+        var key = e.key.toLowerCase();
+        var shortcut = {
+          'e': exportToJSON,        // Ctrl+E → Exportar JSON
+          'p': exportToPDF,         // Ctrl+P → PDF (nuestro, no del navegador)
+          'u': syncToCloud,         // Ctrl+U → Upload (Subir)
+          'd': syncFromCloud,       // Ctrl+D → Download (Descargar)
+          'f': showFinancialSummary,// Ctrl+F → Resumen Financiero
+          'k': showCalendar         // Ctrl+K → Calendario
+        };
+        if (shortcut[key]) {
+          e.preventDefault();
+          if (navigator.vibrate) navigator.vibrate(10);
+          shortcut[key]();
         }
       }
     });
@@ -2305,6 +2810,7 @@
     menu.style.background = isDark ? '#16213e' : '#fff';
     menu.querySelectorAll('button').forEach(function(b) { b.style.color = isDark ? '#fff' : '#333'; });
     menu.querySelectorAll('.dc-sep').forEach(function(s) { s.style.background = isDark ? '#2d3748' : '#e9ecef'; });
+    menu.querySelectorAll('.dc-menu-header').forEach(function(h) { h.style.color = isDark ? '#8899aa' : '#666'; });
   }
 
   function toggleMenu() {

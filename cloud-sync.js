@@ -1,6 +1,14 @@
 /**
- * DebtControl Pro - Cloud Sync Module v4.0.0
+ * DebtControl Pro - Cloud Sync Module v5.0.0
  * Sincronización + herramientas financieras
+ *
+ * v5.0 cambios:
+ * - Resumen financiero, calculadora amortización, Snowball/Avalanche
+ * - Toggle tema oscuro/claro manual
+ * - Autenticación biométrica (WebAuthn)
+ * - Limpieza automática datos huérfanos
+ * - Fix moneda multi-carácter, toast tema, notif días, auto-sync
+ * - Tecla Escape cierra modales, haptic feedback
  *
  * v4.0 cambios:
  * - Modales bonitos (dcConfirm/dcPrompt) — adiós prompt/confirm nativos
@@ -23,7 +31,7 @@
   // Constantes
   // ============================================================
   var SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
-  var SYNC_VERSION = '4.0.0';
+  var SYNC_VERSION = '5.0.0';
   var DB_URL_KEY = 'debtcontrol_guard_dburl';
   var LS_LEGACY_CONFIG = 'debtcontrol_firebase_config';
   var LS_SYNC_ID = 'debtcontrol_sync_id';
@@ -179,12 +187,18 @@
     if (sym === '$') return; // default, no cambiar
     if (currencyObserver) currencyObserver.disconnect();
 
+    var replacing = false;
     function replaceCurrency(node) {
+      if (replacing) return;
       if (node.nodeType === 3) { // text node
         var text = node.textContent;
-        // Reemplazar $ seguido de número (ej: $1,500.00 → €1,500.00)
-        var replaced = text.replace(/\$(\d)/g, sym + '$1');
-        if (replaced !== text) node.textContent = replaced;
+        // Reemplazar $ seguido de número, solo si $ no está precedido por letra
+        var replaced = text.replace(/(^|[^A-Za-z])\$(\d)/g, '$1' + sym + '$2');
+        if (replaced !== text) {
+          replacing = true;
+          node.textContent = replaced;
+          replacing = false;
+        }
       } else if (node.nodeType === 1 && node.id !== 'dc-sync-menu' && node.id !== 'dc-setup-overlay') {
         node.childNodes.forEach(replaceCurrency);
       }
@@ -219,6 +233,7 @@
 
   function createModalOverlay() {
     var overlay = document.createElement('div');
+    overlay.className = 'dc-modal-overlay';
     Object.assign(overlay.style, {
       position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
       background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center',
@@ -700,12 +715,13 @@
     duration = duration || 3000;
     var old = document.getElementById('dc-toast');
     if (old) old.remove();
+    var isDarkToast = document.documentElement.getAttribute('data-theme') !== 'light';
     var t = document.createElement('div');
     t.id = 'dc-toast';
     t.textContent = message;
     Object.assign(t.style, {
       position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)',
-      background: '#1a1a2e', color: '#fff', padding: '12px 24px', borderRadius: '12px',
+      background: isDarkToast ? '#2d3748' : '#1a1a2e', color: '#fff', padding: '12px 24px', borderRadius: '12px',
       fontSize: '14px', fontWeight: '500', zIndex: '99999',
       boxShadow: '0 4px 20px rgba(0,0,0,0.3)', maxWidth: '90vw', textAlign: 'center',
       transition: 'opacity 0.3s, transform 0.3s',
@@ -816,7 +832,7 @@
       + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
       + [1, 3, 5, 7, 14, 30].map(function(d) {
           var active = prefs.daysBefore.indexOf(d) !== -1;
-          return '<button class="dc-notif-day" data-days="' + d + '" style="padding:8px 14px;border-radius:10px;border:1px solid ' + (active ? '#007AFF' : t.border) + ';background:' + (active ? '#007AFF22' : 'transparent') + ';color:' + (active ? '#007AFF' : t.txt) + ';font-size:13px;font-weight:500;cursor:pointer">' + d + 'd</button>';
+          return '<button class="dc-notif-day" data-days="' + d + '" data-active="' + (active ? 'true' : 'false') + '" style="padding:8px 14px;border-radius:10px;border:1px solid ' + (active ? '#007AFF' : t.border) + ';background:' + (active ? '#007AFF22' : 'transparent') + ';color:' + (active ? '#007AFF' : t.txt) + ';font-size:13px;font-weight:500;cursor:pointer">' + d + 'd</button>';
         }).join('')
       + '</div></div>'
       + '<button class="dc-notif-save" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:15px;font-weight:600;cursor:pointer">\uD83D\uDD14 Guardar Preferencias</button>';
@@ -836,12 +852,14 @@
     // Day buttons toggle
     card.querySelectorAll('.dc-notif-day').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        var active = btn.style.background.indexOf('007AFF') !== -1;
+        var active = btn.getAttribute('data-active') === 'true';
         if (active) {
+          btn.setAttribute('data-active', 'false');
           btn.style.background = 'transparent';
           btn.style.borderColor = t.border;
           btn.style.color = t.txt;
         } else {
+          btn.setAttribute('data-active', 'true');
           btn.style.background = '#007AFF22';
           btn.style.borderColor = '#007AFF';
           btn.style.color = '#007AFF';
@@ -862,7 +880,7 @@
       }
       var days = [];
       card.querySelectorAll('.dc-notif-day').forEach(function(btn) {
-        if (btn.style.color === 'rgb(0, 122, 255)' || btn.style.color === '#007AFF') {
+        if (btn.getAttribute('data-active') === 'true') {
           days.push(parseInt(btn.getAttribute('data-days')));
         }
       });
@@ -1191,6 +1209,7 @@
         btn.style.background = '#007AFF15';
         btn.style.fontWeight = '700';
         showToast('\u2705 Sesi\u00f3n configurada: ' + btn.textContent);
+        setTimeout(function() { overlay.remove(); }, 800);
       });
     });
 
@@ -1394,6 +1413,386 @@
   }
 
   // ============================================================
+  // Limpieza de datos huérfanos
+  // ============================================================
+  function cleanupOrphanData() {
+    try {
+      var now = new Date();
+      var keysToRemove = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        if (key && key.startsWith('debtcontrol_notified_')) {
+          var dateStr = key.replace('debtcontrol_notified_', '');
+          var keyDate = new Date(dateStr);
+          if ((now - keyDate) > 7 * 24 * 60 * 60 * 1000) {
+            keysToRemove.push(key);
+          }
+        }
+      }
+      keysToRemove.forEach(function(k) { localStorage.removeItem(k); });
+      if (keysToRemove.length > 0) console.log('[Cleanup] ' + keysToRemove.length + ' claves hu\u00e9rfanas eliminadas');
+    } catch (e) {}
+  }
+
+  // ============================================================
+  // Toggle de tema oscuro/claro
+  // ============================================================
+  function toggleTheme() {
+    var html = document.documentElement;
+    var current = html.getAttribute('data-theme');
+    var newTheme = current === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', newTheme);
+    localStorage.setItem('debtcontrol_theme', newTheme);
+    applyMenuTheme();
+    showToast(newTheme === 'dark' ? '\uD83C\uDF19 Modo oscuro' : '\u2600\uFE0F Modo claro');
+  }
+
+  function applySavedTheme() {
+    var saved = localStorage.getItem('debtcontrol_theme');
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
+  }
+
+  // ============================================================
+  // Resumen financiero r\u00e1pido
+  // ============================================================
+  async function showFinancialSummary() {
+    var data = await getAllLocalData();
+    var t = getThemeColors();
+    var currency = getCurrency();
+    var debts = data.debts || [];
+    var payments = data.payments || [];
+    var savings = data.savings || [];
+    var investments = data.investments || [];
+
+    var totalDebt = debts.reduce(function(s, d) { return s + parseFloat(d.amount || d.totalAmount || d.monto || 0); }, 0);
+    var totalPaid = payments.reduce(function(s, p) { return s + parseFloat(p.amount || p.monto || 0); }, 0);
+    var totalSavings = savings.reduce(function(s, sv) { return s + parseFloat(sv.balance || sv.saldo || 0); }, 0);
+    var totalInvestments = investments.reduce(function(s, iv) { return s + parseFloat(iv.amount || iv.monto || 0); }, 0);
+    var netWorth = totalSavings + totalInvestments - totalDebt;
+
+    var now = new Date(); now.setHours(0, 0, 0, 0);
+    var nextDue = null;
+    debts.forEach(function(d) {
+      var dueStr = d.dueDate || d.fechaVencimiento || d.nextPaymentDate;
+      if (!dueStr) return;
+      var due = new Date(dueStr); due.setHours(0, 0, 0, 0);
+      if (due >= now && (!nextDue || due < nextDue.date)) {
+        nextDue = { date: due, name: d.name || d.nombre || 'Deuda', amount: parseFloat(d.monthlyPayment || d.cuota || d.amount || d.monto || 0) };
+      }
+    });
+
+    var thisMonth = payments.filter(function(p) {
+      var d = new Date(p.date || p.fecha || '');
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    });
+    var lastMonthDate = new Date(now); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
+    var lastMonth = payments.filter(function(p) {
+      var d = new Date(p.date || p.fecha || '');
+      return d.getMonth() === lastMonthDate.getMonth() && d.getFullYear() === lastMonthDate.getFullYear();
+    });
+    var thisMonthTotal = thisMonth.reduce(function(s, p) { return s + parseFloat(p.amount || p.monto || 0); }, 0);
+    var lastMonthTotal = lastMonth.reduce(function(s, p) { return s + parseFloat(p.amount || p.monto || 0); }, 0);
+    var trendIcon = thisMonthTotal >= lastMonthTotal ? '\uD83D\uDCC8' : '\uD83D\uDCC9';
+
+    var overlay = createModalOverlay();
+    var panel = document.createElement('div');
+    Object.assign(panel.style, {
+      background: t.bg, borderRadius: '20px', padding: '24px', maxWidth: '420px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    panel.innerHTML = ''
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">'
+      + '<h2 style="margin:0;font-size:18px">\uD83D\uDCCA Resumen Financiero</h2>'
+      + '<button class="dc-summary-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button>'
+      + '</div>'
+      + '<div style="background:linear-gradient(135deg,#007AFF,#5856D6);border-radius:16px;padding:20px;color:#fff;margin-bottom:16px;text-align:center">'
+      + '<div style="font-size:12px;opacity:0.8">Balance Neto</div>'
+      + '<div style="font-size:28px;font-weight:700;margin:4px 0">' + (netWorth >= 0 ? '+' : '') + currency + formatNumber(netWorth) + '</div>'
+      + '<div style="font-size:11px;opacity:0.6">Ahorros + Inversiones - Deudas</div>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:14px"><div style="font-size:11px;color:' + t.muted + '">Total Deudas</div><div style="font-size:18px;font-weight:700;color:#FF3B30">' + currency + formatNumber(totalDebt) + '</div><div style="font-size:11px;color:' + t.muted + '">' + debts.length + ' activa' + (debts.length !== 1 ? 's' : '') + '</div></div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:14px"><div style="font-size:11px;color:' + t.muted + '">Total Pagado</div><div style="font-size:18px;font-weight:700;color:#34C759">' + currency + formatNumber(totalPaid) + '</div><div style="font-size:11px;color:' + t.muted + '">' + payments.length + ' pago' + (payments.length !== 1 ? 's' : '') + '</div></div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:14px"><div style="font-size:11px;color:' + t.muted + '">Ahorros</div><div style="font-size:18px;font-weight:700;color:#007AFF">' + currency + formatNumber(totalSavings) + '</div><div style="font-size:11px;color:' + t.muted + '">' + savings.length + ' cuenta' + (savings.length !== 1 ? 's' : '') + '</div></div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:14px"><div style="font-size:11px;color:' + t.muted + '">Inversiones</div><div style="font-size:18px;font-weight:700;color:#5856D6">' + currency + formatNumber(totalInvestments) + '</div><div style="font-size:11px;color:' + t.muted + '">' + investments.length + ' activa' + (investments.length !== 1 ? 's' : '') + '</div></div>'
+      + '</div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">'
+      + '<div><div style="font-size:11px;color:' + t.muted + '">Pagos este mes vs anterior</div><div style="font-size:16px;font-weight:600;margin-top:2px">' + currency + formatNumber(thisMonthTotal) + ' <span style="font-size:12px;color:' + t.muted + '">vs ' + currency + formatNumber(lastMonthTotal) + '</span></div></div>'
+      + '<div style="font-size:28px">' + trendIcon + '</div></div>'
+      + (nextDue ? '<div style="background:#FF950015;border:1px solid #FF9500;border-radius:12px;padding:14px;display:flex;justify-content:space-between;align-items:center">'
+        + '<div><div style="font-size:11px;color:#FF9500;font-weight:600">Pr\u00f3ximo vencimiento</div><div style="font-size:14px;font-weight:600;margin-top:2px">' + escapeHtml(nextDue.name) + '</div></div>'
+        + '<div style="text-align:right"><div style="font-size:16px;font-weight:700">' + currency + formatNumber(nextDue.amount) + '</div><div style="font-size:11px;color:' + t.muted + '">' + nextDue.date.toLocaleDateString('es-ES') + '</div></div></div>' : '')
+      + '<button class="dc-summary-close2" style="width:100%;padding:12px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:14px;cursor:pointer;margin-top:16px">Cerrar</button>';
+
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    panel.querySelector('.dc-summary-close').addEventListener('click', function() { overlay.remove(); });
+    panel.querySelector('.dc-summary-close2').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  }
+
+  // ============================================================
+  // Calculadora de amortizaci\u00f3n
+  // ============================================================
+  function showAmortizationCalc() {
+    var t = getThemeColors();
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '420px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    var iSt = 'width:100%;padding:12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;box-sizing:border-box;margin-top:6px;outline:none;';
+    card.innerHTML = ''
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:18px">\uD83E\uDDEE Calculadora Amortizaci\u00f3n</h2>'
+      + '<button class="dc-amort-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button>'
+      + '</div>'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Monto del pr\u00e9stamo (' + getCurrency() + ')</label>'
+      + '<input class="dc-amort-amount" type="number" placeholder="10000" style="' + iSt + '">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + ';display:block;margin-top:12px">Tasa de inter\u00e9s anual (%)</label>'
+      + '<input class="dc-amort-rate" type="number" placeholder="12" step="0.1" style="' + iSt + '">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + ';display:block;margin-top:12px">Plazo (meses)</label>'
+      + '<input class="dc-amort-term" type="number" placeholder="24" style="' + iSt + '">'
+      + '<button class="dc-amort-calc" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:16px">\uD83E\uDDEE Calcular</button>'
+      + '<div class="dc-amort-result" style="margin-top:16px"></div>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    card.querySelector('.dc-amort-close').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    card.querySelector('.dc-amort-calc').addEventListener('click', function() {
+      var amount = parseFloat(card.querySelector('.dc-amort-amount').value);
+      var annualRate = parseFloat(card.querySelector('.dc-amort-rate').value);
+      var months = parseInt(card.querySelector('.dc-amort-term').value);
+      if (!amount || !annualRate || !months || amount <= 0 || annualRate <= 0 || months <= 0) {
+        showToast('\u26A0\uFE0F Completa todos los campos');
+        return;
+      }
+
+      var monthlyRate = annualRate / 100 / 12;
+      var payment = amount * (monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
+      var totalPaid = payment * months;
+      var totalInterest = totalPaid - amount;
+      var currency = getCurrency();
+
+      var html = ''
+        + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:16px;margin-bottom:12px">'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+        + '<div><div style="font-size:11px;color:' + t.muted + '">Cuota mensual</div><div style="font-size:20px;font-weight:700;color:#007AFF">' + currency + formatNumber(payment) + '</div></div>'
+        + '<div><div style="font-size:11px;color:' + t.muted + '">Total a pagar</div><div style="font-size:20px;font-weight:700">' + currency + formatNumber(totalPaid) + '</div></div>'
+        + '<div><div style="font-size:11px;color:' + t.muted + '">Total intereses</div><div style="font-size:20px;font-weight:700;color:#FF3B30">' + currency + formatNumber(totalInterest) + '</div></div>'
+        + '<div><div style="font-size:11px;color:' + t.muted + '">% Inter\u00e9s/Capital</div><div style="font-size:20px;font-weight:700">' + (totalInterest / amount * 100).toFixed(1) + '%</div></div>'
+        + '</div></div>';
+
+      html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Tabla de amortizaci\u00f3n</div>';
+      html += '<div style="max-height:200px;overflow-y:auto">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:11px">';
+      html += '<tr style="background:' + t.inputBg + '"><th style="padding:6px;text-align:left">#</th><th style="padding:6px;text-align:right">Cuota</th><th style="padding:6px;text-align:right">Capital</th><th style="padding:6px;text-align:right">Inter\u00e9s</th><th style="padding:6px;text-align:right">Saldo</th></tr>';
+      var balance = amount;
+      for (var i = 1; i <= months; i++) {
+        var interest = balance * monthlyRate;
+        var principal = payment - interest;
+        balance -= principal;
+        if (balance < 0) balance = 0;
+        html += '<tr style="border-bottom:1px solid ' + t.border + '"><td style="padding:5px">' + i + '</td><td style="padding:5px;text-align:right">' + currency + formatNumber(payment) + '</td><td style="padding:5px;text-align:right">' + currency + formatNumber(principal) + '</td><td style="padding:5px;text-align:right">' + currency + formatNumber(interest) + '</td><td style="padding:5px;text-align:right">' + currency + formatNumber(balance) + '</td></tr>';
+      }
+      html += '</table></div>';
+      card.querySelector('.dc-amort-result').innerHTML = html;
+    });
+  }
+
+  // ============================================================
+  // Estrategia de pago: Snowball vs Avalanche
+  // ============================================================
+  async function showDebtStrategy() {
+    var data = await getAllLocalData();
+    var debts = (data.debts || []).filter(function(d) {
+      return parseFloat(d.amount || d.totalAmount || d.monto || 0) > 0;
+    });
+    var t = getThemeColors();
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '24px', maxWidth: '440px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    var currency = getCurrency();
+    var iSt = 'width:100%;padding:12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;box-sizing:border-box;margin-top:6px;outline:none;';
+
+    if (debts.length < 2) {
+      card.innerHTML = '<div style="text-align:center;padding:20px">'
+        + '<div style="font-size:48px;margin-bottom:12px">\u2696\uFE0F</div>'
+        + '<h2 style="margin:0 0 8px 0;font-size:18px">Estrategia de Pago</h2>'
+        + '<p style="color:' + t.muted + ';font-size:14px">Necesitas al menos 2 deudas activas para comparar estrategias Snowball vs Avalanche.</p>'
+        + '<button class="dc-strat-close" style="padding:12px 24px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:14px;cursor:pointer;margin-top:12px">Cerrar</button></div>';
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      card.querySelector('.dc-strat-close').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      return;
+    }
+
+    var debtsHtml = debts.map(function(d, idx) {
+      var name = d.name || d.nombre || 'Deuda ' + (idx + 1);
+      var amount = parseFloat(d.amount || d.totalAmount || d.monto || 0);
+      var rate = parseFloat(d.interestRate || d.tasaInteres || 0);
+      var minPay = parseFloat(d.monthlyPayment || d.cuota || d.minimumPayment || 0);
+      return '<div style="background:' + t.inputBg + ';border-radius:8px;padding:8px 10px;margin-bottom:4px;display:flex;justify-content:space-between;font-size:12px">'
+        + '<span>' + escapeHtml(name) + '</span>'
+        + '<span>' + currency + formatNumber(amount) + ' | ' + rate + '% | ' + currency + formatNumber(minPay) + '/mes</span></div>';
+    }).join('');
+
+    card.innerHTML = ''
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:18px">\u2696\uFE0F Snowball vs Avalanche</h2>'
+      + '<button class="dc-strat-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button></div>'
+      + '<div style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:6px">Tus deudas:</div>' + debtsHtml + '</div>'
+      + '<div style="background:#007AFF15;border-radius:12px;padding:14px;margin-bottom:16px;font-size:12px;color:' + t.muted + ';line-height:1.5">'
+      + '<b>\u2744\uFE0F Snowball:</b> Paga primero la m\u00e1s peque\u00f1a (motivaci\u00f3n)<br>'
+      + '<b>\uD83C\uDFD4\uFE0F Avalanche:</b> Paga primero la de mayor inter\u00e9s (ahorra m\u00e1s)</div>'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Pago extra mensual (' + currency + ')</label>'
+      + '<input class="dc-strat-extra" type="number" placeholder="0" value="0" style="' + iSt + '">'
+      + '<button class="dc-strat-calc" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:12px">\u2696\uFE0F Comparar</button>'
+      + '<div class="dc-strat-result" style="margin-top:16px"></div>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    card.querySelector('.dc-strat-close').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    card.querySelector('.dc-strat-calc').addEventListener('click', function() {
+      var extra = parseFloat(card.querySelector('.dc-strat-extra').value) || 0;
+      var debtList = debts.map(function(d) {
+        return {
+          name: d.name || d.nombre || 'Deuda',
+          balance: parseFloat(d.amount || d.totalAmount || d.monto || 0),
+          rate: parseFloat(d.interestRate || d.tasaInteres || 0),
+          minPayment: parseFloat(d.monthlyPayment || d.cuota || d.minimumPayment || 0) || parseFloat(d.amount || d.totalAmount || d.monto || 0) * 0.03
+        };
+      });
+
+      function simulate(strategy) {
+        var ds = debtList.map(function(d) { return { balance: d.balance, rate: d.rate, minPayment: d.minPayment }; });
+        if (strategy === 'snowball') ds.sort(function(a, b) { return a.balance - b.balance; });
+        else ds.sort(function(a, b) { return b.rate - a.rate; });
+        var months = 0, totalPaid = 0, totalInterest = 0;
+        while (months < 600 && ds.some(function(d) { return d.balance > 0.01; })) {
+          months++;
+          for (var i = 0; i < ds.length; i++) {
+            if (ds[i].balance <= 0) continue;
+            var interest = ds[i].balance * (ds[i].rate / 100 / 12);
+            ds[i].balance += interest;
+            totalInterest += interest;
+          }
+          var avail = extra;
+          for (var i = 0; i < ds.length; i++) {
+            if (ds[i].balance <= 0) { avail += ds[i].minPayment; continue; }
+            var pay = Math.min(ds[i].minPayment, ds[i].balance);
+            ds[i].balance -= pay; totalPaid += pay;
+          }
+          for (var i = 0; i < ds.length; i++) {
+            if (ds[i].balance <= 0 || avail <= 0) continue;
+            var pay = Math.min(avail, ds[i].balance);
+            ds[i].balance -= pay; totalPaid += pay; avail -= pay;
+          }
+        }
+        return { months: months, totalPaid: totalPaid, totalInterest: totalInterest };
+      }
+
+      var snowball = simulate('snowball');
+      var avalanche = simulate('avalanche');
+      var winner = avalanche.totalInterest <= snowball.totalInterest ? 'avalanche' : 'snowball';
+      var saved = Math.abs(snowball.totalInterest - avalanche.totalInterest);
+      var monthsDiff = Math.abs(snowball.months - avalanche.months);
+
+      var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+        + '<div style="background:' + (winner === 'snowball' ? '#34C75920' : t.inputBg) + ';border:2px solid ' + (winner === 'snowball' ? '#34C759' : 'transparent') + ';border-radius:12px;padding:14px;text-align:center">'
+        + '<div style="font-size:24px">\u2744\uFE0F</div><div style="font-size:14px;font-weight:700">Snowball</div>'
+        + '<div style="font-size:11px;color:' + t.muted + ';margin-top:8px">' + snowball.months + ' meses</div>'
+        + '<div style="font-size:13px;font-weight:600">' + currency + formatNumber(snowball.totalPaid) + '</div>'
+        + '<div style="font-size:11px;color:#FF3B30">Inter\u00e9s: ' + currency + formatNumber(snowball.totalInterest) + '</div></div>'
+        + '<div style="background:' + (winner === 'avalanche' ? '#34C75920' : t.inputBg) + ';border:2px solid ' + (winner === 'avalanche' ? '#34C759' : 'transparent') + ';border-radius:12px;padding:14px;text-align:center">'
+        + '<div style="font-size:24px">\uD83C\uDFD4\uFE0F</div><div style="font-size:14px;font-weight:700">Avalanche</div>'
+        + '<div style="font-size:11px;color:' + t.muted + ';margin-top:8px">' + avalanche.months + ' meses</div>'
+        + '<div style="font-size:13px;font-weight:600">' + currency + formatNumber(avalanche.totalPaid) + '</div>'
+        + '<div style="font-size:11px;color:#FF3B30">Inter\u00e9s: ' + currency + formatNumber(avalanche.totalInterest) + '</div></div></div>';
+
+      if (saved > 0.01) {
+        html += '<div style="background:#34C75920;border-radius:12px;padding:12px;text-align:center">'
+          + '<div style="font-size:13px;font-weight:600">\uD83C\uDFC6 ' + (winner === 'avalanche' ? 'Avalanche' : 'Snowball') + ' te ahorra</div>'
+          + '<div style="font-size:20px;font-weight:700;color:#34C759;margin:4px 0">' + currency + formatNumber(saved) + '</div>'
+          + (monthsDiff > 0 ? '<div style="font-size:12px;color:' + t.muted + '">y ' + monthsDiff + ' mes' + (monthsDiff !== 1 ? 'es' : '') + ' menos</div>' : '') + '</div>';
+      } else {
+        html += '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px;text-align:center;font-size:13px;color:' + t.muted + '">Ambas estrategias dan resultado similar.</div>';
+      }
+
+      card.querySelector('.dc-strat-result').innerHTML = html;
+    });
+  }
+
+  // ============================================================
+  // Configuraci\u00f3n biom\u00e9trica (UI)
+  // ============================================================
+  async function showBiometricConfig() {
+    var guard = window.DebtControlGuard;
+    if (!guard || !guard.isWebAuthnAvailable || !guard.isWebAuthnAvailable()) {
+      showToast('\u274C Tu dispositivo no soporta autenticaci\u00f3n biom\u00e9trica');
+      return;
+    }
+    var hasBio = guard.hasBiometric ? guard.hasBiometric() : false;
+    var t = getThemeColors();
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '380px',
+      width: '100%', color: t.txt, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', textAlign: 'center'
+    });
+
+    card.innerHTML = ''
+      + '<div style="font-size:48px;margin-bottom:12px">\uD83D\uDD10</div>'
+      + '<h2 style="margin:0 0 8px 0;font-size:18px">Autenticaci\u00f3n Biom\u00e9trica</h2>'
+      + '<p style="font-size:13px;color:' + t.muted + ';margin:0 0 20px 0">Usa huella dactilar o reconocimiento facial para desbloquear la app.</p>'
+      + '<div style="background:' + (hasBio ? '#34C75920' : t.inputBg) + ';border-radius:12px;padding:16px;margin-bottom:16px">'
+      + '<div style="font-size:14px;font-weight:600">' + (hasBio ? '\uD83D\uDFE2 Biometr\u00eda activada' : '\uD83D\uDD34 No configurada') + '</div></div>'
+      + (hasBio
+        ? '<button class="dc-bio-remove" style="width:100%;padding:14px;border:1px solid #FF3B30;border-radius:12px;background:transparent;color:#FF3B30;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px">\uD83D\uDDD1\uFE0F Desactivar</button>'
+        : '<button class="dc-bio-register" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px">\uD83D\uDD10 Activar Biometr\u00eda</button>')
+      + '<button class="dc-bio-close" style="width:100%;padding:12px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:14px;cursor:pointer">Cerrar</button>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    card.querySelector('.dc-bio-close').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    var regBtn = card.querySelector('.dc-bio-register');
+    if (regBtn) {
+      regBtn.addEventListener('click', async function() {
+        regBtn.textContent = '\u23F3 Configurando...';
+        regBtn.disabled = true;
+        var ok = await guard.registerBiometric();
+        if (ok) { showToast('\u2705 Biometr\u00eda activada'); overlay.remove(); }
+        else { showToast('\u274C Error al configurar'); regBtn.textContent = '\uD83D\uDD10 Activar Biometr\u00eda'; regBtn.disabled = false; }
+      });
+    }
+
+    var rmBtn = card.querySelector('.dc-bio-remove');
+    if (rmBtn) {
+      rmBtn.addEventListener('click', async function() {
+        var ok = await dcConfirm('\u00bfDesactivar biometr\u00eda?', { icon: '\uD83D\uDD10', confirmText: 'Desactivar', danger: true });
+        if (ok && guard.removeBiometric) { guard.removeBiometric(); showToast('\u2705 Desactivada'); overlay.remove(); }
+      });
+    }
+  }
+
+  // ============================================================
   // UI: Botón flotante y menú
   // ============================================================
   function updateFabBadge() {
@@ -1450,8 +1849,6 @@
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     });
 
-    var canInstall = !!window.dcInstallPrompt;
-
     var items = [
       { icon: '\uD83D\uDCE5', label: 'Exportar Backup (JSON)', action: exportToJSON },
       { icon: '\uD83D\uDCC4', label: 'Exportar Reporte PDF', action: exportToPDF },
@@ -1464,17 +1861,20 @@
       { icon: '\uD83D\uDD14', label: 'Notificaciones', action: showNotificationConfig },
       { icon: '\uD83D\uDCB1', label: 'Moneda', action: showCurrencyConfig },
       { sep: true },
+      { icon: '\uD83D\uDCCA', label: 'Resumen Financiero', action: showFinancialSummary },
+      { icon: '\uD83E\uDDEE', label: 'Calculadora Amortizaci\u00f3n', action: showAmortizationCalc },
+      { icon: '\u2696\uFE0F', label: 'Snowball vs Avalanche', action: showDebtStrategy },
+      { sep: true },
       { icon: '\u2699\uFE0F', label: 'Configurar Firebase', action: showFirebaseSetup },
       { icon: '\uD83D\uDCCB', label: 'Historial de Sync', action: showSyncHistory },
       { icon: '\uD83D\uDD12', label: 'Cambiar C\u00f3digo de Acceso', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.changeCode(); else showToast('Guard no disponible'); } },
       { icon: '\u23F0', label: 'Duraci\u00f3n de Sesi\u00f3n', action: showSessionConfig },
+      { icon: '\uD83C\uDF19', label: 'Cambiar Tema', action: toggleTheme },
+      { icon: '\uD83D\uDD10', label: 'Biometr\u00eda', action: showBiometricConfig },
       { sep: true }
     ];
 
-    if (canInstall) {
-      items.push({ icon: '\uD83D\uDCF2', label: 'Instalar App', action: installApp });
-    }
-
+    items.push({ icon: '\uD83D\uDCF2', label: 'Instalar App', action: installApp });
     items.push({ icon: '\uD83D\uDD10', label: 'Bloquear App', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.lock(); else { localStorage.removeItem('debtcontrol_auth_session'); location.reload(); } } });
     items.push({ icon: '\uD83D\uDEAA', label: 'Cerrar Sesi\u00f3n', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.logout(); else { localStorage.removeItem('debtcontrol_auth_session'); location.reload(); } } });
 
@@ -1494,7 +1894,7 @@
         fontSize: '14px', fontWeight: '500', textAlign: 'left', transition: 'background 0.12s',
         whiteSpace: 'nowrap'
       });
-      btn.addEventListener('click', function() { toggleMenu(); item.action(); });
+      btn.addEventListener('click', function() { if (navigator.vibrate) navigator.vibrate(10); toggleMenu(); item.action(); });
       menu.appendChild(btn);
     });
 
@@ -1510,9 +1910,17 @@
     new MutationObserver(applyMenuTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     updateFabBadge();
 
-    // Listen for install prompt changes
-    window.addEventListener('beforeinstallprompt', function() {
-      // Rebuild menu to include install option if not present
+    // Tecla Escape para cerrar modales
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        var overlays = document.querySelectorAll('.dc-modal-overlay, #dc-calendar-overlay, #dc-setup-overlay, #dc-change-code-modal');
+        if (overlays.length > 0) {
+          overlays[overlays.length - 1].remove();
+        } else {
+          var menu = document.getElementById('dc-sync-menu');
+          if (menu && menu.style.display !== 'none') menu.style.display = 'none';
+        }
+      }
     });
   }
 
@@ -1577,6 +1985,14 @@
       if (connected && localStorage.getItem(LS_LAST_SYNC)) {
         await new Promise(function(r) { setTimeout(r, 3000); });
         if (navigator.onLine && connected) {
+          try {
+            var remote = await restGet('users/' + getSyncId() + '/data/_lastSync');
+            var localSync = localStorage.getItem(LS_LAST_SYNC);
+            if (remote && localSync && new Date(remote) > new Date(localSync)) {
+              showToast('\u26A0\uFE0F Datos m\u00e1s recientes en la nube. Descarga primero.', 5000);
+              return;
+            }
+          } catch (e) {}
           showToast('\u2601\uFE0F Sincronizando autom\u00e1ticamente...');
           await syncToCloud();
         }
@@ -1593,6 +2009,9 @@
       else window.addEventListener('load', r);
     });
     await new Promise(function(r) { setTimeout(r, 2000); });
+
+    applySavedTheme();
+    cleanupOrphanData();
 
     dbUrl = getDbUrl();
     if (dbUrl) {

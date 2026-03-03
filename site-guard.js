@@ -1,7 +1,8 @@
 /**
- * DebtControl Pro - Site Guard v4.0
+ * DebtControl Pro - Site Guard v5.0
  * Protección de acceso con código maestro
  *
+ * v5.0 - WebAuthn biométrico, rate limiting en nuevo dispositivo
  * v4.0 - Rate limiting, sesión configurable, modals bonitos
  * - Firebase REST API (no SDK, solo URL)
  * - Hash SHA-256
@@ -189,6 +190,75 @@
   }
 
   // ============================================================
+  // WebAuthn (Biometría)
+  // ============================================================
+  var WEBAUTHN_KEY = 'debtcontrol_webauthn_credential';
+
+  function isWebAuthnAvailable() {
+    return window.PublicKeyCredential !== undefined && typeof window.PublicKeyCredential === 'function';
+  }
+
+  function hasBiometric() {
+    return isWebAuthnAvailable() && !!localStorage.getItem(WEBAUTHN_KEY);
+  }
+
+  async function registerBiometric() {
+    if (!isWebAuthnAvailable()) return false;
+    try {
+      var challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      var userId = new Uint8Array(16);
+      crypto.getRandomValues(userId);
+      var credential = await navigator.credentials.create({
+        publicKey: {
+          challenge: challenge,
+          rp: { name: 'DebtControl Pro', id: location.hostname },
+          user: { id: userId, name: 'debtcontrol-user', displayName: 'DebtControl User' },
+          pubKeyCredParams: [
+            { alg: -7, type: 'public-key' },
+            { alg: -257, type: 'public-key' }
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            userVerification: 'required',
+            residentKey: 'preferred'
+          },
+          timeout: 60000
+        }
+      });
+      var credId = btoa(String.fromCharCode.apply(null, new Uint8Array(credential.rawId)));
+      localStorage.setItem(WEBAUTHN_KEY, credId);
+      return true;
+    } catch (e) {
+      console.error('[WebAuthn] Registration error:', e);
+      return false;
+    }
+  }
+
+  async function authenticateBiometric() {
+    if (!hasBiometric()) return false;
+    var credId = localStorage.getItem(WEBAUTHN_KEY);
+    try {
+      var rawId = Uint8Array.from(atob(credId), function(c) { return c.charCodeAt(0); });
+      var challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      await navigator.credentials.get({
+        publicKey: {
+          challenge: challenge,
+          rpId: location.hostname,
+          allowCredentials: [{ type: 'public-key', id: rawId }],
+          userVerification: 'required',
+          timeout: 60000
+        }
+      });
+      return true;
+    } catch (e) {
+      console.error('[WebAuthn] Auth error:', e);
+      return false;
+    }
+  }
+
+  // ============================================================
   // Pantalla: LOGIN
   // ============================================================
   function showLogin(hashData) {
@@ -203,6 +273,7 @@
       + '<input id="dc-code" type="password" placeholder="C\u00f3digo de acceso" style="' + inputStyle() + 'letter-spacing:4px;font-size:20px" autocomplete="off">'
       + '<div id="dc-err" style="color:#FF6B6B;font-size:13px;margin-top:10px;min-height:18px"></div>'
       + '<button id="dc-btn" style="' + btnStyle() + '">\u2192 Entrar</button>'
+      + (hasBiometric() ? '<button id="dc-bio-btn" style="width:100%;padding:14px;border:1px solid rgba(255,255,255,0.2);border-radius:14px;background:rgba(255,255,255,0.05);color:#fff;font-size:15px;cursor:pointer;margin-top:10px">\uD83D\uDD10 Usar Biometr\u00eda</button>' : '')
       + '<p style="margin:20px 0 0 0;font-size:11px;color:rgba(255,255,255,0.25)">Acceso protegido</p>';
 
     overlay.appendChild(card);
@@ -297,6 +368,25 @@
 
     btn.addEventListener('click', doLogin);
     inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+
+    var bioBtn = card.querySelector('#dc-bio-btn');
+    if (bioBtn) {
+      bioBtn.addEventListener('click', async function() {
+        bioBtn.textContent = '\u23F3 Verificando...';
+        bioBtn.disabled = true;
+        var ok = await authenticateBiometric();
+        if (ok) {
+          clearAttempts();
+          createSession();
+          overlay.remove();
+          showApp();
+        } else {
+          err.textContent = 'Autenticaci\u00f3n biom\u00e9trica fallida';
+          bioBtn.textContent = '\uD83D\uDD10 Usar Biometr\u00eda';
+          bioBtn.disabled = false;
+        }
+      });
+    }
   }
 
   // ============================================================
@@ -375,7 +465,25 @@
     var err = card.querySelector('#dc-err');
     inpUrl.focus();
 
+    if (isLocked()) {
+      err.textContent = '\uD83D\uDD12 Demasiados intentos. Bloqueado ' + LOCKOUT_MINUTES + ' min';
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      var lockTimerND = setInterval(function() {
+        if (!isLocked()) {
+          clearInterval(lockTimerND);
+          err.textContent = '';
+          btn.disabled = false;
+          btn.style.opacity = '1';
+        }
+      }, 5000);
+    }
+
     async function doVerify() {
+      if (isLocked()) {
+        err.textContent = '\uD83D\uDD12 Demasiados intentos. Espera...';
+        return;
+      }
       var dbUrl = inpUrl.value.trim();
       var code = inpCode.value;
       err.textContent = '';
@@ -406,9 +514,26 @@
         overlay.remove();
         showApp();
       } else {
-        err.textContent = 'C\u00f3digo incorrecto';
-        btn.disabled = false;
-        btn.textContent = '\uD83D\uDD13 Verificar y Entrar';
+        var attemptData = recordFailedAttempt();
+        if (attemptData.lockedUntil) {
+          err.textContent = '\uD83D\uDD12 Demasiados intentos. Bloqueado ' + LOCKOUT_MINUTES + ' min';
+          btn.disabled = true;
+          btn.style.opacity = '0.5';
+          var lockTimer3 = setInterval(function() {
+            if (!isLocked()) {
+              clearInterval(lockTimer3);
+              err.textContent = '';
+              btn.disabled = false;
+              btn.style.opacity = '1';
+              btn.textContent = '\uD83D\uDD13 Verificar y Entrar';
+            }
+          }, 5000);
+        } else {
+          var remaining = MAX_ATTEMPTS - attemptData.count;
+          err.textContent = 'C\u00f3digo incorrecto (' + remaining + ' intento' + (remaining !== 1 ? 's' : '') + ' restante' + (remaining !== 1 ? 's' : '') + ')';
+          btn.disabled = false;
+          btn.textContent = '\uD83D\uDD13 Verificar y Entrar';
+        }
         inpCode.value = '';
         inpCode.focus();
       }
@@ -521,6 +646,10 @@
       localStorage.setItem(SESSION_DURATION_KEY, String(hours));
     },
     getSessionDuration: getSessionHours,
+    isWebAuthnAvailable: isWebAuthnAvailable,
+    hasBiometric: hasBiometric,
+    registerBiometric: registerBiometric,
+    removeBiometric: function() { localStorage.removeItem(WEBAUTHN_KEY); },
     resetCode: async function() {
       // Usar dcConfirm si está disponible (de cloud-sync.js), sino fallback
       var doConfirm = window.dcConfirm || function(msg) { return Promise.resolve(confirm(msg)); };

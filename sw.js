@@ -1,5 +1,5 @@
-const STATIC_CACHE = 'debtcontrol-static-v4.0.0';
-const DYNAMIC_CACHE = 'debtcontrol-dynamic-v4.0.0';
+const STATIC_CACHE = 'debtcontrol-static-v5.0.0';
+const DYNAMIC_CACHE = 'debtcontrol-dynamic-v5.0.0';
 
 const STATIC_ASSETS = [
   './',
@@ -15,10 +15,15 @@ const STATIC_ASSETS = [
   './icons/icon-512.png'
 ];
 
+// CDNs permitidos para cache offline (jsPDF, etc.)
+const CACHEABLE_CDNS = [
+  'cdnjs.cloudflare.com'
+];
+
 // Instalar: cachear archivos pero NO activar inmediatamente
 // (permite que el banner de actualización funcione correctamente)
 self.addEventListener('install', (event) => {
-  console.log('[SW] Instalando v4.0.0...');
+  console.log('[SW] Instalando v5.0.0...');
   event.waitUntil(
     caches.open(STATIC_CACHE)
       .then((cache) => cache.addAll(STATIC_ASSETS))
@@ -46,6 +51,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+
+  // Cachear recursos de CDNs conocidos (jsPDF, etc.)
+  if (CACHEABLE_CDNS.some((cdn) => url.hostname === cdn)) {
+    event.respondWith(cacheFirst(request));
+    return;
+  }
+
   if (url.origin !== location.origin) return;
 
   if (request.destination === 'document') {

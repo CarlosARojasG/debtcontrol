@@ -1,13 +1,11 @@
 /**
- * DebtControl Pro - Cloud Sync Module v2.5
- * Sincronización en la nube usando Firebase Realtime Database (gratis, sin servidor)
- * 
- * - Configurable desde la app (sin editar código)
- * - Backup local JSON (offline)
- * - Sync con Firebase (online)
- * - Auto-backup, cifrado con PIN, vinculación entre dispositivos
- * 
- * SETUP: Toca el botón ☁️ > ⚙️ Configurar Firebase
+ * DebtControl Pro - Cloud Sync Module v3.0
+ * Sincronización simplificada con Firebase REST API
+ *
+ * - Solo necesita la URL de la base de datos (1 campo)
+ * - NO requiere Firebase SDK (más rápido, más ligero)
+ * - QR para compartir entre dispositivos
+ * - Backup local JSON, cifrado con PIN, auto-sync
  */
 
 (function() {
@@ -16,87 +14,139 @@
   // ============================================================
   // Constantes
   // ============================================================
-  const SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
-  const SYNC_VERSION = '2.5.0';
-  const LS_FIREBASE_CONFIG = 'debtcontrol_firebase_config';
-  const LS_SYNC_ID = 'debtcontrol_sync_id';
-  const LS_LAST_SYNC = 'debtcontrol_last_sync';
-  const LS_SYNC_PIN = 'debtcontrol_sync_pin';
-  const LS_AUTO_BACKUP = 'debtcontrol_auto_backup';
+  var SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
+  var SYNC_VERSION = '3.0.0';
+  var DB_URL_KEY = 'debtcontrol_guard_dburl';          // compartido con site-guard
+  var LS_LEGACY_CONFIG = 'debtcontrol_firebase_config'; // v2.x, para migración
+  var LS_SYNC_ID = 'debtcontrol_sync_id';
+  var LS_LAST_SYNC = 'debtcontrol_last_sync';
+  var LS_SYNC_PIN = 'debtcontrol_sync_pin';
+  var LS_AUTO_BACKUP = 'debtcontrol_auto_backup';
 
-  let firebaseReady = false;
-  let db = null;
-  let syncUserId = null;
+  var dbUrl = null;
+  var connected = false;
+  var syncUserId = null;
 
   // ============================================================
-  // Utilidades
+  // DB URL management + migración de v2.x
+  // ============================================================
+
+  function getDbUrl() {
+    // Migrar config v2.x → URL simple
+    try {
+      var legacy = localStorage.getItem(LS_LEGACY_CONFIG);
+      if (legacy) {
+        var cfg = JSON.parse(legacy);
+        if (cfg && cfg.databaseURL) {
+          localStorage.setItem(DB_URL_KEY, cfg.databaseURL);
+          // No borramos el legacy por si site-guard lo necesita aún en caché
+        }
+      }
+    } catch (e) {}
+    return localStorage.getItem(DB_URL_KEY) || null;
+  }
+
+  function saveDbUrl(url) {
+    url = url.replace(/\/+$/, '');
+    localStorage.setItem(DB_URL_KEY, url);
+    dbUrl = url;
+  }
+
+  // ============================================================
+  // Firebase REST API
+  // ============================================================
+
+  async function restGet(path) {
+    if (!dbUrl) return null;
+    try {
+      var resp = await fetch(dbUrl + '/' + path + '.json');
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch (e) { return null; }
+  }
+
+  async function restPut(path, data) {
+    if (!dbUrl) return false;
+    try {
+      var resp = await fetch(dbUrl + '/' + path + '.json', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return resp.ok;
+    } catch (e) { return false; }
+  }
+
+  async function restDelete(path) {
+    if (!dbUrl) return false;
+    try {
+      var resp = await fetch(dbUrl + '/' + path + '.json', { method: 'DELETE' });
+      return resp.ok;
+    } catch (e) { return false; }
+  }
+
+  async function testConnection() {
+    if (!dbUrl) return false;
+    try {
+      var resp = await fetch(dbUrl + '/_ping.json', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ts: Date.now() })
+      });
+      return resp.ok;
+    } catch (e) { return false; }
+  }
+
+  // ============================================================
+  // Utilidades locales
   // ============================================================
 
   function getLocalForage() {
-    if (window.localforage) return window.localforage;
-    return null;
+    return window.localforage || null;
   }
 
   async function getAllLocalData() {
-    const lf = getLocalForage();
-    const data = {};
-    for (const key of SYNC_KEYS) {
+    var lf = getLocalForage();
+    var data = {};
+    for (var i = 0; i < SYNC_KEYS.length; i++) {
+      var key = SYNC_KEYS[i];
       try {
         if (lf) {
           data[key] = await lf.getItem(key);
         } else {
-          for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
+          for (var j = 0; j < localStorage.length; j++) {
+            var k = localStorage.key(j);
             if (k && k.endsWith('/' + key)) {
-              try { data[key] = JSON.parse(localStorage.getItem(k)); } catch(e) {}
+              try { data[key] = JSON.parse(localStorage.getItem(k)); } catch(e2) {}
               break;
             }
           }
         }
-      } catch (e) {
-        console.warn('[CloudSync] Error leyendo ' + key, e);
-      }
+      } catch (e) {}
     }
     return data;
   }
 
-  // ============================================================
-  // Firebase Config (guardada en localStorage, configurable desde UI)
-  // ============================================================
-
-  function getSavedFirebaseConfig() {
-    try {
-      const raw = localStorage.getItem(LS_FIREBASE_CONFIG);
-      if (!raw) return null;
-      const cfg = JSON.parse(raw);
-      if (cfg && cfg.apiKey && cfg.databaseURL && cfg.projectId) return cfg;
-    } catch (e) {}
-    return null;
-  }
-
-  function saveFirebaseConfig(config) {
-    localStorage.setItem(LS_FIREBASE_CONFIG, JSON.stringify(config));
-  }
-
-  function clearFirebaseConfig() {
-    localStorage.removeItem(LS_FIREBASE_CONFIG);
-    firebaseReady = false;
-    db = null;
+  function getSyncId() {
+    syncUserId = localStorage.getItem(LS_SYNC_ID);
+    if (!syncUserId) {
+      syncUserId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem(LS_SYNC_ID, syncUserId);
+    }
+    return syncUserId;
   }
 
   // ============================================================
-  // Cifrado simple con PIN (para proteger datos en la nube)
+  // Cifrado simple con PIN
   // ============================================================
 
-  function getSyncPin() {
-    return localStorage.getItem(LS_SYNC_PIN) || '';
-  }
+  function getSyncPin() { return localStorage.getItem(LS_SYNC_PIN) || ''; }
 
   function simpleEncrypt(text, pin) {
     if (!pin) return text;
-    const encoded = btoa(unescape(encodeURIComponent(text)));
-    let result = '';
-    for (let i = 0; i < encoded.length; i++) {
+    var encoded = btoa(unescape(encodeURIComponent(text)));
+    var result = '';
+    for (var i = 0; i < encoded.length; i++) {
       result += String.fromCharCode(encoded.charCodeAt(i) ^ pin.charCodeAt(i % pin.length));
     }
     return btoa(result);
@@ -105,15 +155,13 @@
   function simpleDecrypt(text, pin) {
     if (!pin) return text;
     try {
-      const decoded = atob(text);
-      let result = '';
-      for (let i = 0; i < decoded.length; i++) {
+      var decoded = atob(text);
+      var result = '';
+      for (var i = 0; i < decoded.length; i++) {
         result += String.fromCharCode(decoded.charCodeAt(i) ^ pin.charCodeAt(i % pin.length));
       }
       return decodeURIComponent(escape(atob(result)));
-    } catch (e) {
-      return null;
-    }
+    } catch (e) { return null; }
   }
 
   // ============================================================
@@ -122,154 +170,90 @@
 
   async function exportToJSON() {
     try {
-      const data = await getAllLocalData();
+      var data = await getAllLocalData();
       data._exportDate = new Date().toISOString();
       data._version = SYNC_VERSION;
       data._app = 'DebtControl Pro';
-
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
       a.href = url;
       a.download = 'debtcontrol-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
-      showToast('\u2705 Backup descargado correctamente');
+      showToast('\u2705 Backup descargado');
     } catch (err) {
-      console.error('[CloudSync] Error exportando:', err);
-      showToast('\u274C Error al exportar datos');
+      showToast('\u274C Error al exportar');
     }
   }
 
   async function importFromJSON() {
-    const input = document.createElement('input');
+    var input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
-    input.onchange = async (e) => {
+    input.onchange = async function(e) {
       try {
-        const file = e.target.files[0];
+        var file = e.target.files[0];
         if (!file) return;
-        const text = await file.text();
-        const data = JSON.parse(text);
-
-        if (!data._app && !data.debts && !data.payments) {
-          showToast('\u274C Archivo no v\u00e1lido'); return;
-        }
+        var text = await file.text();
+        var data = JSON.parse(text);
+        if (!data._app && !data.debts && !data.payments) { showToast('\u274C Archivo no v\u00e1lido'); return; }
         if (!confirm('\u00bfReemplazar datos actuales con el backup?\nEsta acci\u00f3n no se puede deshacer.')) return;
-
-        const lf = getLocalForage();
-        for (const key of SYNC_KEYS) {
-          if (data[key] != null && lf) {
-            await lf.setItem(key, data[key]);
-          }
+        var lf = getLocalForage();
+        for (var i = 0; i < SYNC_KEYS.length; i++) {
+          if (data[SYNC_KEYS[i]] != null && lf) await lf.setItem(SYNC_KEYS[i], data[SYNC_KEYS[i]]);
         }
         showToast('\u2705 Datos restaurados. Recargando...');
         setTimeout(function() { location.reload(); }, 1500);
       } catch (err) {
-        console.error('[CloudSync] Error importando:', err);
-        showToast('\u274C Archivo corrupto o no v\u00e1lido');
+        showToast('\u274C Archivo corrupto');
       }
     };
     input.click();
   }
 
   // ============================================================
-  // Firebase Init / Sync
+  // Sync con Firebase REST
   // ============================================================
 
-  function loadScript(src) {
-    return new Promise(function(resolve, reject) {
-      if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
-      var s = document.createElement('script');
-      s.src = src;
-      s.onload = resolve;
-      s.onerror = reject;
-      document.head.appendChild(s);
-    });
-  }
-
-  async function initFirebase() {
-    var config = getSavedFirebaseConfig();
-    if (!config) {
-      console.log('[CloudSync] Firebase no configurado');
-      return false;
-    }
-    try {
-      if (!window.firebase) {
-        await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
-        await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js');
-      }
-      if (firebase.apps && firebase.apps.length) {
-        // ya inicializado
-      } else {
-        firebase.initializeApp(config);
-      }
-      db = firebase.database();
-
-      syncUserId = localStorage.getItem(LS_SYNC_ID);
-      if (!syncUserId) {
-        syncUserId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        localStorage.setItem(LS_SYNC_ID, syncUserId);
-      }
-
-      // Test: escribir y leer un nodo de prueba para verificar conexion real
-      var testRef = db.ref('_ping');
-      await testRef.set({ ts: Date.now() });
-
-      firebaseReady = true;
-      console.log('[CloudSync] Firebase conectado OK');
-      return true;
-    } catch (err) {
-      console.error('[CloudSync] Error Firebase:', err);
-      // Mostrar detalle del error en consola para debug
-      if (err.code) console.error('[CloudSync] Codigo:', err.code);
-      firebaseReady = false;
-      return false;
-    }
-  }
-
   async function syncToCloud() {
-    if (!firebaseReady) { showToast('\u26A0\uFE0F Configura Firebase primero (bot\u00f3n \u2601\uFE0F > \u2699\uFE0F)'); return; }
+    if (!connected) { showToast('\u26A0\uFE0F Configura Firebase primero (\u2601\uFE0F \u2192 \u2699\uFE0F)'); return; }
     try {
       showToast('\u2601\uFE0F Subiendo datos...');
       var data = await getAllLocalData();
       var pin = getSyncPin();
-
       var payload = {
         _lastSync: new Date().toISOString(),
         _version: SYNC_VERSION,
         _device: navigator.userAgent.substring(0, 60),
         _encrypted: !!pin
       };
-
       if (pin) {
         payload._data = simpleEncrypt(JSON.stringify(data), pin);
       } else {
         for (var k in data) { payload[k] = data[k]; }
       }
-
-      await db.ref('users/' + syncUserId + '/data').set(payload);
-      localStorage.setItem(LS_LAST_SYNC, new Date().toISOString());
-      showToast('\u2705 Sincronizado con la nube');
+      var ok = await restPut('users/' + getSyncId() + '/data', payload);
+      if (ok) {
+        localStorage.setItem(LS_LAST_SYNC, new Date().toISOString());
+        showToast('\u2705 Sincronizado con la nube');
+      } else {
+        showToast('\u274C Error al subir datos');
+      }
     } catch (err) {
-      console.error('[CloudSync]', err);
       showToast('\u274C Error: ' + (err.message || 'sin conexi\u00f3n'));
     }
   }
 
   async function syncFromCloud() {
-    if (!firebaseReady) { showToast('\u26A0\uFE0F Configura Firebase primero (bot\u00f3n \u2601\uFE0F > \u2699\uFE0F)'); return; }
+    if (!connected) { showToast('\u26A0\uFE0F Configura Firebase primero (\u2601\uFE0F \u2192 \u2699\uFE0F)'); return; }
     try {
       showToast('\u2601\uFE0F Descargando datos...');
-      var snapshot = await db.ref('users/' + syncUserId + '/data').get();
-      if (!snapshot.exists()) { showToast('\u2139\uFE0F No hay datos en la nube'); return; }
-
-      var raw = snapshot.val();
+      var raw = await restGet('users/' + getSyncId() + '/data');
+      if (!raw) { showToast('\u2139\uFE0F No hay datos en la nube'); return; }
       var data;
-
       if (raw._encrypted) {
         var pin = getSyncPin() || prompt('Los datos est\u00e1n cifrados. Introduce tu PIN:');
         if (!pin) return;
@@ -279,20 +263,15 @@
       } else {
         data = raw;
       }
-
       var lastSync = raw._lastSync || 'desconocida';
       if (!confirm('\u00bfRestaurar datos de la nube?\n\u00daltima sync: ' + lastSync + '\nEsto reemplazar\u00e1 tus datos locales.')) return;
-
       var lf = getLocalForage();
       for (var i = 0; i < SYNC_KEYS.length; i++) {
-        var key = SYNC_KEYS[i];
-        if (data[key] != null && lf) await lf.setItem(key, data[key]);
+        if (data[SYNC_KEYS[i]] != null && lf) await lf.setItem(SYNC_KEYS[i], data[SYNC_KEYS[i]]);
       }
-
       showToast('\u2705 Datos restaurados. Recargando...');
       setTimeout(function() { location.reload(); }, 1500);
     } catch (err) {
-      console.error('[CloudSync]', err);
       showToast('\u274C Error: ' + (err.message || 'sin conexi\u00f3n'));
     }
   }
@@ -321,7 +300,7 @@
   }
 
   // ============================================================
-  // UI: Panel de configuraci\u00f3n Firebase
+  // UI: Panel de configuración Firebase (SIMPLIFICADO)
   // ============================================================
 
   function showFirebaseSetup() {
@@ -330,9 +309,10 @@
 
     var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     var bg = isDark ? '#1a1a2e' : '#fff';
-    var text = isDark ? '#fff' : '#1a1a2e';
+    var txt = isDark ? '#fff' : '#1a1a2e';
     var inputBg = isDark ? '#16213e' : '#f5f5f5';
     var border = isDark ? '#2d3748' : '#e0e0e0';
+    var muted = isDark ? '#a0a0a0' : '#666';
 
     var overlay = document.createElement('div');
     overlay.id = 'dc-setup-overlay';
@@ -343,171 +323,114 @@
       padding: '16px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     });
 
-    var saved = getSavedFirebaseConfig();
-    var connected = firebaseReady;
-    var syncId = localStorage.getItem(LS_SYNC_ID) || 'No generado a\u00fan';
+    var savedUrl = dbUrl || '';
+    var syncId = getSyncId();
     var lastSync = localStorage.getItem(LS_LAST_SYNC) || 'Nunca';
     var pin = getSyncPin();
 
     var panel = document.createElement('div');
     Object.assign(panel.style, {
       background: bg, borderRadius: '20px', padding: '24px', maxWidth: '420px',
-      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: text,
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: txt,
       boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
     });
 
+    // QR image URL (usa API pública para generar QR)
+    var qrSrc = savedUrl ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(savedUrl) : '';
+
     panel.innerHTML = ''
-      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">'
-      + '  <h2 style="margin:0;font-size:20px">\u2699\uFE0F Configurar Firebase</h2>'
-      + '  <button id="dc-close-setup" style="background:none;border:none;font-size:24px;cursor:pointer;color:' + text + ';padding:4px">\u2715</button>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '  <h2 style="margin:0;font-size:20px">\u2601\uFE0F Configurar Firebase</h2>'
+      + '  <button id="dc-close-setup" style="background:none;border:none;font-size:24px;cursor:pointer;color:' + txt + ';padding:4px">\u2715</button>'
       + '</div>'
+      // Estado
       + '<div style="background:' + (connected ? '#34C75920' : '#FF950020') + ';border-radius:12px;padding:12px;margin-bottom:16px;display:flex;align-items:center;gap:8px">'
       + '  <span style="font-size:20px">' + (connected ? '\uD83D\uDFE2' : '\uD83D\uDD34') + '</span>'
-      + '  <span style="font-size:14px;font-weight:600;color:' + text + '">' + (connected ? 'Firebase conectado' : 'Firebase no conectado') + '</span>'
+      + '  <span style="font-size:14px;font-weight:600;color:' + txt + '">' + (connected ? 'Conectado a Firebase' : 'No conectado') + '</span>'
       + '</div>'
-      + '<p style="font-size:13px;color:' + (isDark ? '#a0a0a0' : '#666') + ';margin:0 0 16px 0">'
-      + '  Pega aqu\u00ed la configuraci\u00f3n de tu proyecto Firebase.<br>'
-      + '  <a href="https://console.firebase.google.com/" target="_blank" rel="noopener" style="color:#007AFF">Abrir Firebase Console \u2192</a>'
-      + '</p>'
-      + '<div style="margin-bottom:12px">'
-      + '  <label style="font-size:12px;font-weight:600;color:' + (isDark ? '#a0a0a0' : '#888') + '">API Key *</label>'
-      + '  <input id="dc-apiKey" value="' + (saved && saved.apiKey ? saved.apiKey : '') + '" placeholder="AIzaSy..." style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid ' + border + ';background:' + inputBg + ';color:' + text + ';font-size:14px;box-sizing:border-box;margin-top:4px">'
-      + '</div>'
-      + '<div style="margin-bottom:12px">'
-      + '  <label style="font-size:12px;font-weight:600;color:' + (isDark ? '#a0a0a0' : '#888') + '">Database URL *</label>'
-      + '  <input id="dc-dbURL" value="' + (saved && saved.databaseURL ? saved.databaseURL : '') + '" placeholder="https://tu-proyecto-default-rtdb.firebaseio.com" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid ' + border + ';background:' + inputBg + ';color:' + text + ';font-size:14px;box-sizing:border-box;margin-top:4px">'
-      + '</div>'
-      + '<div style="margin-bottom:12px">'
-      + '  <label style="font-size:12px;font-weight:600;color:' + (isDark ? '#a0a0a0' : '#888') + '">Project ID *</label>'
-      + '  <input id="dc-projectId" value="' + (saved && saved.projectId ? saved.projectId : '') + '" placeholder="mi-proyecto-12345" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid ' + border + ';background:' + inputBg + ';color:' + text + ';font-size:14px;box-sizing:border-box;margin-top:4px">'
-      + '</div>'
-      + '<div style="margin-bottom:12px">'
-      + '  <label style="font-size:12px;font-weight:600;color:' + (isDark ? '#a0a0a0' : '#888') + '">Auth Domain</label>'
-      + '  <input id="dc-authDomain" value="' + (saved && saved.authDomain ? saved.authDomain : '') + '" placeholder="mi-proyecto.firebaseapp.com" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid ' + border + ';background:' + inputBg + ';color:' + text + ';font-size:14px;box-sizing:border-box;margin-top:4px">'
-      + '</div>'
-      + '<div style="margin-bottom:12px">'
-      + '  <label style="font-size:12px;font-weight:600;color:' + (isDark ? '#a0a0a0' : '#888') + '">App ID</label>'
-      + '  <input id="dc-appId" value="' + (saved && saved.appId ? saved.appId : '') + '" placeholder="1:123456:web:abc123" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid ' + border + ';background:' + inputBg + ';color:' + text + ';font-size:14px;box-sizing:border-box;margin-top:4px">'
-      + '</div>'
-      + '<div style="margin-bottom:12px;padding:12px;background:' + inputBg + ';border-radius:12px">'
-      + '  <label style="font-size:12px;font-weight:600;color:' + (isDark ? '#a0a0a0' : '#888') + '">O pega todo el firebaseConfig JSON aqu\u00ed:</label>'
-      + '  <textarea id="dc-jsonConfig" rows="4" placeholder=\'{"apiKey":"...","databaseURL":"...",...}\' style="width:100%;padding:10px;border-radius:8px;border:1px solid ' + border + ';background:' + bg + ';color:' + text + ';font-size:12px;font-family:monospace;box-sizing:border-box;margin-top:4px;resize:vertical"></textarea>'
-      + '  <button id="dc-parseJson" style="margin-top:8px;padding:8px 16px;border:none;border-radius:8px;background:#007AFF;color:#fff;font-size:13px;cursor:pointer;font-weight:600">\uD83D\uDCCB Parsear JSON</button>'
+      // URL field
+      + '<div style="margin-bottom:16px">'
+      + '  <label style="font-size:13px;font-weight:600;color:' + muted + '">URL de tu Realtime Database</label>'
+      + '  <input id="dc-dburl" value="' + savedUrl + '" placeholder="https://tu-proyecto-default-rtdb.firebaseio.com" style="width:100%;padding:12px;border-radius:10px;border:1px solid ' + border + ';background:' + inputBg + ';color:' + txt + ';font-size:14px;box-sizing:border-box;margin-top:6px">'
+      + '  <p style="font-size:11px;color:' + muted + ';margin:6px 0 0 0">Es lo \u00fanico que necesitas. Lo encuentras en Firebase Console \u2192 Realtime Database (arriba de los datos).</p>'
       + '</div>'
       + '<button id="dc-save-config" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:16px;font-weight:600;cursor:pointer;margin-bottom:12px">'
-      + '  \uD83D\uDCBE Guardar y Conectar'
-      + '</button>'
-      + (saved ? '<button id="dc-clear-config" style="width:100%;padding:12px;border:1px solid #FF3B30;border-radius:12px;background:transparent;color:#FF3B30;font-size:14px;cursor:pointer;margin-bottom:16px">\uD83D\uDDD1\uFE0F Desconectar Firebase</button>' : '')
+      + (connected ? '\u2705 Conectado \u2014 Guardar cambios' : '\uD83D\uDD17 Conectar') + '</button>'
+      + (savedUrl ? '<button id="dc-clear-config" style="width:100%;padding:10px;border:1px solid #FF3B30;border-radius:10px;background:transparent;color:#FF3B30;font-size:13px;cursor:pointer;margin-bottom:16px">\uD83D\uDDD1\uFE0F Desconectar</button>' : '')
+      // QR para compartir
+      + (savedUrl ? '<hr style="border:none;border-top:1px solid ' + border + ';margin:16px 0">'
+      + '<h3 style="font-size:16px;margin:0 0 12px 0">\uD83D\uDCF1 Compartir con otro dispositivo</h3>'
+      + '<p style="font-size:12px;color:' + muted + ';margin:0 0 12px 0">Escanea este QR desde el otro celular para copiar la URL, o usa el bot\u00f3n de compartir.</p>'
+      + '<div style="text-align:center;margin-bottom:12px">'
+      + '  <img id="dc-qr" src="' + qrSrc + '" style="width:180px;height:180px;border-radius:12px;border:1px solid ' + border + '" alt="QR">'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;margin-bottom:16px">'
+      + '  <button id="dc-copy-url" style="flex:1;padding:10px;border:1px solid ' + border + ';border-radius:10px;background:' + bg + ';color:' + txt + ';font-size:13px;cursor:pointer;font-weight:500">\uD83D\uDCCB Copiar URL</button>'
+      + '  <button id="dc-share-url" style="flex:1;padding:10px;border:1px solid ' + border + ';border-radius:10px;background:' + bg + ';color:' + txt + ';font-size:13px;cursor:pointer;font-weight:500">\uD83D\uDCE4 Compartir</button>'
+      + '</div>' : '')
+      // Sync info
       + '<hr style="border:none;border-top:1px solid ' + border + ';margin:16px 0">'
       + '<h3 style="font-size:16px;margin:0 0 12px 0">\uD83D\uDD17 Sincronizaci\u00f3n</h3>'
       + '<div style="background:' + inputBg + ';border-radius:12px;padding:12px;margin-bottom:12px">'
-      + '  <div style="font-size:12px;color:' + (isDark ? '#a0a0a0' : '#888') + ';font-weight:600">Tu ID de sincronizaci\u00f3n</div>'
-      + '  <div style="font-size:13px;font-family:monospace;word-break:break-all;margin-top:4px;color:' + text + '">' + syncId + '</div>'
+      + '  <div style="font-size:12px;color:' + muted + ';font-weight:600">Tu ID de sincronizaci\u00f3n</div>'
+      + '  <div style="font-size:12px;font-family:monospace;word-break:break-all;margin-top:4px;color:' + txt + '">' + syncId + '</div>'
       + '  <div style="display:flex;gap:8px;margin-top:8px">'
-      + '    <button id="dc-copy-id" style="flex:1;padding:8px;border:1px solid ' + border + ';border-radius:8px;background:' + bg + ';color:' + text + ';font-size:12px;cursor:pointer">\uD83D\uDCCB Copiar</button>'
-      + '    <button id="dc-change-id" style="flex:1;padding:8px;border:1px solid ' + border + ';border-radius:8px;background:' + bg + ';color:' + text + ';font-size:12px;cursor:pointer">\u270F\uFE0F Cambiar ID</button>'
+      + '    <button id="dc-copy-id" style="flex:1;padding:8px;border:1px solid ' + border + ';border-radius:8px;background:' + bg + ';color:' + txt + ';font-size:12px;cursor:pointer">\uD83D\uDCCB Copiar</button>'
+      + '    <button id="dc-change-id" style="flex:1;padding:8px;border:1px solid ' + border + ';border-radius:8px;background:' + bg + ';color:' + txt + ';font-size:12px;cursor:pointer">\u270F\uFE0F Cambiar ID</button>'
       + '  </div>'
       + '</div>'
       + '<div style="background:' + inputBg + ';border-radius:12px;padding:12px;margin-bottom:12px">'
-      + '  <div style="font-size:12px;color:' + (isDark ? '#a0a0a0' : '#888') + ';font-weight:600">\u00daltima sincronizaci\u00f3n</div>'
-      + '  <div style="font-size:13px;margin-top:4px;color:' + text + '">' + (lastSync !== 'Nunca' ? new Date(lastSync).toLocaleString('es-ES') : 'Nunca') + '</div>'
+      + '  <div style="font-size:12px;color:' + muted + ';font-weight:600">\u00daltima sincronizaci\u00f3n</div>'
+      + '  <div style="font-size:13px;margin-top:4px;color:' + txt + '">' + (lastSync !== 'Nunca' ? new Date(lastSync).toLocaleString('es-ES') : 'Nunca') + '</div>'
       + '</div>'
       + '<div style="background:' + inputBg + ';border-radius:12px;padding:12px;margin-bottom:12px">'
-      + '  <div style="font-size:12px;color:' + (isDark ? '#a0a0a0' : '#888') + ';font-weight:600">\uD83D\uDD12 PIN de cifrado (opcional)</div>'
+      + '  <div style="font-size:12px;color:' + muted + ';font-weight:600">\uD83D\uDD12 PIN de cifrado (opcional)</div>'
       + '  <div style="display:flex;gap:8px;margin-top:8px">'
-      + '    <input id="dc-pin" type="password" value="' + pin + '" placeholder="PIN num\u00e9rico..." style="flex:1;padding:10px;border-radius:8px;border:1px solid ' + border + ';background:' + bg + ';color:' + text + ';font-size:14px">'
+      + '    <input id="dc-pin" type="password" value="' + pin + '" placeholder="PIN num\u00e9rico..." style="flex:1;padding:10px;border-radius:8px;border:1px solid ' + border + ';background:' + bg + ';color:' + txt + ';font-size:14px">'
       + '    <button id="dc-save-pin" style="padding:8px 16px;border:none;border-radius:8px;background:#34C759;color:#fff;font-size:13px;cursor:pointer;font-weight:600">Guardar</button>'
       + '  </div>'
-      + '  <div style="font-size:11px;color:' + (isDark ? '#a0a0a0' : '#999') + ';margin-top:6px">Si pones un PIN, los datos se cifran antes de subir a la nube. Usa el mismo PIN en todos tus dispositivos.</div>'
+      + '  <div style="font-size:11px;color:' + muted + ';margin-top:6px">Cifra tus datos antes de subirlos. Usa el mismo PIN en todos tus dispositivos.</div>'
       + '</div>'
+      // Guía simplificada
       + '<hr style="border:none;border-top:1px solid ' + border + ';margin:16px 0">'
-      + '<h3 style="font-size:16px;margin:0 0 8px 0">\uD83D\uDCD6 Gu\u00eda r\u00e1pida</h3>'
-      + '<ol style="font-size:13px;color:' + (isDark ? '#a0a0a0' : '#666') + ';padding-left:20px;margin:0;line-height:1.8">'
-      + '  <li>Ve a <a href="https://console.firebase.google.com/" target="_blank" style="color:#007AFF">Firebase Console</a></li>'
-      + '  <li>Crea un proyecto (nombre libre, desactiva Analytics)</li>'
-      + '  <li>En el men\u00fa izquierdo: <b>Compilaci\u00f3n \u2192 Realtime Database</b></li>'
-      + '  <li>Click <b>"Crear base de datos"</b> \u2192 Selecciona regi\u00f3n \u2192 <b>Modo de prueba</b> \u2192 Habilitar</li>'
-      + '  <li>En el men\u00fa izquierdo junto a "Informaci\u00f3n del proyecto" \u2192 <b>\u2699 Configuraci\u00f3n del proyecto</b></li>'
-      + '  <li>Baja hasta <b>"Tus apps"</b> \u2192 Click en icono <b>&lt;/&gt;</b> (Web)</li>'
-      + '  <li>Pon un nombre (ej: "DebtControl") \u2192 <b>Registrar</b></li>'
-      + '  <li>Te mostrar\u00e1 un c\u00f3digo con <code>firebaseConfig</code> \u2192 <b>Copia todo el JSON</b></li>'
-      + '  <li>P\u00e9galo aqu\u00ed arriba y presiona <b>"Guardar y Conectar"</b></li>'
+      + '<h3 style="font-size:16px;margin:0 0 8px 0">\uD83D\uDCD6 \u00bfC\u00f3mo obtener la URL?</h3>'
+      + '<ol style="font-size:13px;color:' + muted + ';padding-left:20px;margin:0;line-height:2">'
+      + '  <li>Ve a <a href="https://console.firebase.google.com/" target="_blank" style="color:#007AFF">console.firebase.google.com</a></li>'
+      + '  <li>Crea un proyecto (desactiva Analytics)</li>'
+      + '  <li><b>Compilaci\u00f3n \u2192 Realtime Database \u2192 Crear base de datos</b></li>'
+      + '  <li>Selecciona regi\u00f3n \u2192 <b>Modo de prueba</b> \u2192 Habilitar</li>'
+      + '  <li>Copia la URL que aparece arriba (empieza con <code style="background:' + inputBg + ';padding:2px 6px;border-radius:4px;font-size:11px">https://</code>)</li>'
       + '</ol>';
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
 
-    // Event listeners
+    // -- Event listeners --
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
     panel.querySelector('#dc-close-setup').addEventListener('click', function() { overlay.remove(); });
 
-    // Parsear JSON pegado
-    panel.querySelector('#dc-parseJson').addEventListener('click', function() {
-      var raw = panel.querySelector('#dc-jsonConfig').value.trim();
-      try {
-        var jsonStr = raw;
-        var match = raw.match(/\{[\s\S]*?apiKey[\s\S]*?\}/);
-        if (match) jsonStr = match[0];
-        // Reemplazar comillas simples por dobles
-        jsonStr = jsonStr.replace(/'/g, '"');
-        // Solo agregar comillas a claves que NO las tengan ya
-        jsonStr = jsonStr.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-        // Limpiar trailing commas
-        jsonStr = jsonStr.replace(/,\s*\}/g, '}');
-        var cfg = JSON.parse(jsonStr);
-        if (cfg.apiKey) panel.querySelector('#dc-apiKey').value = cfg.apiKey;
-        if (cfg.authDomain) panel.querySelector('#dc-authDomain').value = cfg.authDomain;
-        if (cfg.databaseURL) panel.querySelector('#dc-dbURL').value = cfg.databaseURL;
-        if (cfg.projectId) panel.querySelector('#dc-projectId').value = cfg.projectId;
-        if (cfg.appId) panel.querySelector('#dc-appId').value = cfg.appId;
-        showToast('\u2705 Configuraci\u00f3n parseada. Revisa los campos.');
-      } catch (err) {
-        showToast('\u274C JSON no v\u00e1lido. Copia todo el bloque firebaseConfig.');
-      }
-    });
-
-    // Guardar config
+    // Conectar
     panel.querySelector('#dc-save-config').addEventListener('click', async function() {
-      var apiKey = panel.querySelector('#dc-apiKey').value.trim();
-      var databaseURL = panel.querySelector('#dc-dbURL').value.trim();
-      var projectId = panel.querySelector('#dc-projectId').value.trim();
-      var authDomain = panel.querySelector('#dc-authDomain').value.trim();
-      var appId = panel.querySelector('#dc-appId').value.trim();
-
-      if (!apiKey || !databaseURL || !projectId) {
-        showToast('\u274C API Key, Database URL y Project ID son obligatorios');
+      var url = panel.querySelector('#dc-dburl').value.trim();
+      if (!url || !url.startsWith('https://')) {
+        showToast('\u274C La URL debe empezar con https://');
         return;
       }
-
-      var config = { apiKey: apiKey, databaseURL: databaseURL, projectId: projectId, authDomain: authDomain, appId: appId };
-      saveFirebaseConfig(config);
-
-      firebaseReady = false;
       var btn = panel.querySelector('#dc-save-config');
       btn.textContent = '\u23F3 Conectando...';
       btn.disabled = true;
-
-      // Limpiar instancia previa de Firebase si existe
-      if (window.firebase && firebase.apps && firebase.apps.length) {
-        try {
-          await firebase.app().delete();
-          // Esperar un momento para que se limpie
-          await new Promise(function(r) { setTimeout(r, 500); });
-        } catch(e) {
-          console.warn('[CloudSync] No se pudo limpiar app anterior:', e);
-        }
-      }
-
-      var ok = await initFirebase();
-
+      saveDbUrl(url);
+      var ok = await testConnection();
       if (ok) {
+        connected = true;
         showToast('\u2705 Firebase conectado correctamente');
         overlay.remove();
         updateFabBadge();
       } else {
-        btn.textContent = '\uD83D\uDCBE Guardar y Conectar';
+        connected = false;
+        btn.textContent = '\uD83D\uDD17 Conectar';
         btn.disabled = false;
-        showToast('\u274C Error al conectar. Abre la consola (F12) para ver detalles.', 5000);
+        showToast('\u274C No se pudo conectar. Verifica la URL y las reglas de la BD.', 5000);
       }
     });
 
@@ -516,29 +439,50 @@
     if (clearBtn) {
       clearBtn.addEventListener('click', function() {
         if (confirm('\u00bfDesconectar Firebase? Los datos locales NO se borran.')) {
-          clearFirebaseConfig();
+          localStorage.removeItem(DB_URL_KEY);
+          localStorage.removeItem(LS_LEGACY_CONFIG);
+          dbUrl = null;
+          connected = false;
           overlay.remove();
           updateFabBadge();
-          showToast('\uD83D\uDD0C Firebase desconectado');
+          showToast('\uD83D\uDD0C Desconectado');
         }
+      });
+    }
+
+    // Copiar URL
+    var copyUrlBtn = panel.querySelector('#dc-copy-url');
+    if (copyUrlBtn) {
+      copyUrlBtn.addEventListener('click', function() {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(savedUrl).then(function() { showToast('\uD83D\uDCCB URL copiada'); });
+        } else { prompt('Copia esta URL:', savedUrl); }
+      });
+    }
+
+    // Compartir URL (Web Share API en móvil)
+    var shareBtn = panel.querySelector('#dc-share-url');
+    if (shareBtn) {
+      shareBtn.addEventListener('click', function() {
+        if (navigator.share) {
+          navigator.share({ title: 'DebtControl - Firebase URL', text: savedUrl }).catch(function() {});
+        } else if (navigator.clipboard) {
+          navigator.clipboard.writeText(savedUrl).then(function() { showToast('\uD83D\uDCCB URL copiada al portapapeles'); });
+        } else { prompt('Comparte esta URL:', savedUrl); }
       });
     }
 
     // Copiar ID
     panel.querySelector('#dc-copy-id').addEventListener('click', function() {
-      var id = localStorage.getItem(LS_SYNC_ID) || '';
       if (navigator.clipboard) {
-        navigator.clipboard.writeText(id).then(function() { showToast('\uD83D\uDCCB ID copiado'); });
-      } else {
-        prompt('Copia este ID:', id);
-      }
+        navigator.clipboard.writeText(syncId).then(function() { showToast('\uD83D\uDCCB ID copiado'); });
+      } else { prompt('Copia este ID:', syncId); }
     });
 
     // Cambiar ID
     panel.querySelector('#dc-change-id').addEventListener('click', function() {
-      var current = localStorage.getItem(LS_SYNC_ID) || '';
       var newId = prompt('Pega el ID del otro dispositivo para vincularlos:', '');
-      if (newId && newId.trim() && newId.trim() !== current) {
+      if (newId && newId.trim() && newId.trim() !== syncId) {
         localStorage.setItem(LS_SYNC_ID, newId.trim());
         syncUserId = newId.trim();
         showToast('\uD83D\uDD17 ID actualizado. Descarga los datos de la nube.');
@@ -546,23 +490,23 @@
       }
     });
 
-    // Guardar PIN
+    // PIN
     panel.querySelector('#dc-save-pin').addEventListener('click', function() {
       var newPin = panel.querySelector('#dc-pin').value;
       localStorage.setItem(LS_SYNC_PIN, newPin);
-      showToast(newPin ? '\uD83D\uDD12 PIN guardado' : '\uD83D\uDD13 PIN eliminado (sin cifrado)');
+      showToast(newPin ? '\uD83D\uDD12 PIN guardado' : '\uD83D\uDD13 PIN eliminado');
     });
   }
 
   // ============================================================
-  // UI: Bot\u00f3n flotante y men\u00fa
+  // UI: Botón flotante y menú
   // ============================================================
 
   function updateFabBadge() {
     var fab = document.getElementById('dc-sync-fab');
     if (!fab) return;
     var dot = fab.querySelector('.dc-dot');
-    if (firebaseReady) {
+    if (connected) {
       if (!dot) {
         var d = document.createElement('span');
         d.className = 'dc-dot';
@@ -579,9 +523,9 @@
 
   function createSyncUI() {
     var style = document.createElement('style');
-    style.textContent = '@keyframes dcToastIn { from { opacity:0; transform:translateX(-50%) translateY(-10px) } to { opacity:1; transform:translateX(-50%) translateY(0) } }'
-      + ' #dc-sync-fab:active { transform: scale(0.9) !important; }'
-      + ' #dc-sync-menu button:active { background: rgba(0,122,255,0.1) !important; }';
+    style.textContent = '@keyframes dcToastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}'
+      + '#dc-sync-fab:active{transform:scale(0.9)!important}'
+      + '#dc-sync-menu button:active{background:rgba(0,122,255,0.1)!important}';
     document.head.appendChild(style);
 
     var fab = document.createElement('button');
@@ -648,7 +592,6 @@
     });
 
     new MutationObserver(applyMenuTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-
     updateFabBadge();
   }
 
@@ -678,7 +621,7 @@
         if (hasData) {
           localStorage.setItem(LS_AUTO_BACKUP, JSON.stringify({ data: data, ts: new Date().toISOString() }));
         }
-      } catch (e) { /* silent */ }
+      } catch (e) {}
     }, 5 * 60 * 1000);
   }
 
@@ -688,9 +631,9 @@
 
   function setupAutoSync() {
     window.addEventListener('online', async function() {
-      if (firebaseReady && localStorage.getItem(LS_LAST_SYNC)) {
+      if (connected && localStorage.getItem(LS_LAST_SYNC)) {
         await new Promise(function(r) { setTimeout(r, 3000); });
-        if (navigator.onLine && firebaseReady) {
+        if (navigator.onLine && connected) {
           showToast('\u2601\uFE0F Sincronizando autom\u00e1ticamente...');
           await syncToCloud();
         }
@@ -709,12 +652,18 @@
     });
     await new Promise(function(r) { setTimeout(r, 2000); });
 
-    await initFirebase();
+    // Obtener URL (con migración automática de v2.x)
+    dbUrl = getDbUrl();
+    if (dbUrl) {
+      connected = await testConnection();
+      getSyncId();
+    }
+
     createSyncUI();
     setupAutoBackup();
     setupAutoSync();
 
-    console.log('[CloudSync] v' + SYNC_VERSION + ' | Firebase:', firebaseReady ? '\u2705 Conectado' : '\u274C No configurado');
+    console.log('[CloudSync] v' + SYNC_VERSION + ' | Firebase:', connected ? '\u2705 Conectado' : '\u274C No configurado');
   }
 
   init();

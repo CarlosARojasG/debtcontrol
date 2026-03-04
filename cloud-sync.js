@@ -1,5 +1,5 @@
 ﻿/**
- * DebtControl Pro - Cloud Sync Module v7.0.0
+ * DebtControl Pro - Cloud Sync Module v7.0.1
  * SincronizaciÃ³n + herramientas financieras
  *
  * v7.0 cambios:

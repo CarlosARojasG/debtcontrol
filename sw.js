@@ -23,7 +23,7 @@ const CACHEABLE_CDNS = [
 // Instalar: cachear archivos pero NO activar inmediatamente
 // (permite que el banner de actualización funcione correctamente)
 self.addEventListener('install', (event) => {
-  console.log('[SW] Instalando v7.0.0...');
+  console.log('[SW] Instalando v7.0.1...');
   event.waitUntil(
     caches.open(STATIC_CACHE)
       .then((cache) => cache.addAll(STATIC_ASSETS))

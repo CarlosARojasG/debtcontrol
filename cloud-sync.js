@@ -1,44 +1,44 @@
-/**
+﻿/**
  * DebtControl Pro - Cloud Sync Module v7.0.0
- * Sincronización + herramientas financieras
+ * SincronizaciÃ³n + herramientas financieras
  *
  * v7.0 cambios:
- * - Fix applyCurrencyToDOM: $ en regex replace ya no corrompe símbolos multi-carácter
+ * - Fix applyCurrencyToDOM: $ en regex replace ya no corrompe sÃ­mbolos multi-carÃ¡cter
  * - Fix PDF: rendimiento 0% ya no muestra como '-'
- * - Fix notificaciones: ahora avisa el mismo día del vencimiento (día 0)
+ * - Fix notificaciones: ahora avisa el mismo dÃ­a del vencimiento (dÃ­a 0)
  * - Fix DTI: porcentaje disponible negativo se muestra correctamente
- * - Menú con títulos de sección (Archivo, Nube, Planificación, Herramientas, Ajustes)
+ * - MenÃº con tÃ­tulos de secciÃ³n (Archivo, Nube, PlanificaciÃ³n, Herramientas, Ajustes)
  * - CSV export incluye recordatorios (reminders)
- * - Historial de sync con botón Limpiar
+ * - Historial de sync con botÃ³n Limpiar
  * - Calendario muestra recordatorios con indicador morado
- * - Calculadora amortización: botón Copiar tabla al portapapeles
- * - Calculadora Fecha Libre de Deudas (proyección + pago extra)
- * - Comparador de Préstamos (lado a lado)
- * - Desglose de deudas por Categoría (barras + porcentajes)
- * - Accesos rápidos de teclado (Ctrl+E/P/U/D/F/K)
+ * - Calculadora amortizaciÃ³n: botÃ³n Copiar tabla al portapapeles
+ * - Calculadora Fecha Libre de Deudas (proyecciÃ³n + pago extra)
+ * - Comparador de PrÃ©stamos (lado a lado)
+ * - Desglose de deudas por CategorÃ­a (barras + porcentajes)
+ * - Accesos rÃ¡pidos de teclado (Ctrl+E/P/U/D/F/K)
  *
  * v6.0 cambios:
  * - Exportar a CSV para Excel/Sheets
- * - Snapshot pre-sync con opción de revertir (undo)
+ * - Snapshot pre-sync con opciÃ³n de revertir (undo)
  * - Calculadora ratio Deuda/Ingreso (DTI)
  * - Progreso visual por deuda en resumen financiero
  * - Pantalla "Acerca de" con changelog
  * - Auto-sync configurable (on/off)
  * - PDF incluye tabla de inversiones
  * - Backup JSON incluye preferencias del usuario
- * - Cambio de moneda actualiza todo el DOM (prev→nuevo)
+ * - Cambio de moneda actualiza todo el DOM (prevâ†’nuevo)
  * - Fix tema oscuro respeta preferencia del sistema
- * - Fix posicionamiento del menú (scrollHeight)
- * - Fix formatNumber(NaN) → muestra 0
+ * - Fix posicionamiento del menÃº (scrollHeight)
+ * - Fix formatNumber(NaN) â†’ muestra 0
  * - Fix escapeAttr no escapaba &
  * - testConnection usa GET en vez de PUT
  *
  * v5.0 cambios:
- * - Resumen financiero, calculadora amortización, Snowball/Avalanche
+ * - Resumen financiero, calculadora amortizaciÃ³n, Snowball/Avalanche
  * - Toggle tema oscuro/claro manual
- * - Autenticación biométrica (WebAuthn)
- * - Limpieza automática datos huérfanos
- * - Fix moneda multi-carácter, toast tema, notif días, auto-sync
+ * - AutenticaciÃ³n biomÃ©trica (WebAuthn)
+ * - Limpieza automÃ¡tica datos huÃ©rfanos
+ * - Fix moneda multi-carÃ¡cter, toast tema, notif dÃ­as, auto-sync
  * - Tecla Escape cierra modales, haptic feedback
  */
 
@@ -49,7 +49,7 @@
   // Constantes
   // ============================================================
   var SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
-  var SYNC_VERSION = '7.0.0';
+  var SYNC_VERSION = '7.0.1';
   var DB_URL_KEY = 'debtcontrol_guard_dburl';
   var LS_LEGACY_CONFIG = 'debtcontrol_firebase_config';
   var LS_SYNC_ID = 'debtcontrol_sync_id';
@@ -72,7 +72,7 @@
   var syncUserId = null;
 
   // ============================================================
-  // DB URL management + migración v2.x
+  // DB URL management + migraciÃ³n v2.x
   // ============================================================
   function getDbUrl() {
     try {
@@ -210,7 +210,7 @@
     if (currencyObserver) currencyObserver.disconnect();
 
     var replacing = false;
-    // Construir regex que busca el símbolo anterior O $ seguido de dígito
+    // Construir regex que busca el sÃ­mbolo anterior O $ seguido de dÃ­gito
     var escPrev = prevCurrencySymbol ? prevCurrencySymbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
 
     function replaceCurrency(node) {
@@ -218,10 +218,10 @@
       if (node.nodeType === 3) { // text node
         var text = node.textContent;
         var replaced = text;
-        // Reemplazar $ seguido de número, solo si $ no está precedido por letra
-        // Usar función para evitar que $ en sym se interprete como referencia regex
+        // Reemplazar $ seguido de nÃºmero, solo si $ no estÃ¡ precedido por letra
+        // Usar funciÃ³n para evitar que $ en sym se interprete como referencia regex
         replaced = replaced.replace(/(^|[^A-Za-z])\$(\d)/g, function(_, pre, digit) { return pre + sym + digit; });
-        // Si hay símbolo previo diferente, reemplazarlo también
+        // Si hay sÃ­mbolo previo diferente, reemplazarlo tambiÃ©n
         if (escPrev && escPrev !== '\\$' && sym !== prevCurrencySymbol) {
           var prevRegex = new RegExp(escPrev + '(\\d)', 'g');
           replaced = replaced.replace(prevRegex, function(_, digit) { return sym + digit; });
@@ -388,6 +388,11 @@
         sessionDuration: localStorage.getItem('debtcontrol_session_duration') || '24',
         autoSync: localStorage.getItem(LS_AUTO_SYNC_ENABLED) !== 'false'
       };
+      // Datos en localStorage (recurrentes + gamificación)
+      data._recurringBills = localStorage.getItem(LS_RECURRING_BILLS) || '[]';
+      data._recurringRecords = localStorage.getItem(LS_RECURRING_RECORDS) || '{}';
+      data._achievements = localStorage.getItem(LS_ACHIEVEMENTS) || '[]';
+      data._paidDebts = localStorage.getItem(LS_PAID_DEBTS) || '[]';
       var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
@@ -429,6 +434,11 @@
         } else if (data._currency) {
           localStorage.setItem(LS_CURRENCY, data._currency);
         }
+        // Restaurar datos recurrentes y gamificación
+        if (data._recurringBills) localStorage.setItem(LS_RECURRING_BILLS, data._recurringBills);
+        if (data._recurringRecords) localStorage.setItem(LS_RECURRING_RECORDS, data._recurringRecords);
+        if (data._achievements) localStorage.setItem(LS_ACHIEVEMENTS, data._achievements);
+        if (data._paidDebts) localStorage.setItem(LS_PAID_DEBTS, data._paidDebts);
         showToast('\u2705 Datos restaurados. Recargando...');
         setTimeout(function() { location.reload(); }, 1500);
       } catch (err) {
@@ -526,6 +536,25 @@
         });
       }
 
+      // Pagos Recurrentes
+      var recurringBills = [];
+      try { recurringBills = JSON.parse(localStorage.getItem(LS_RECURRING_BILLS) || '[]'); } catch(e) {}
+      var recurringRecords = {};
+      try { recurringRecords = JSON.parse(localStorage.getItem(LS_RECURRING_RECORDS) || '{}'); } catch(e) {}
+      if (recurringBills.length > 0) {
+        lines.push('');
+        lines.push('=== PAGOS RECURRENTES ===');
+        lines.push('Servicio,Categor\u00eda,Monto Estimado,Activo');
+        recurringBills.forEach(function(bill) {
+          lines.push([
+            '"' + (bill.name || '').replace(/"/g, '""') + '"',
+            '"' + (bill.category || '').replace(/"/g, '""') + '"',
+            parseFloat(bill.estimatedAmount || 0),
+            bill.active !== false ? 'S\u00ed' : 'No'
+          ].join(','));
+        });
+      }
+
       var bom = '\uFEFF'; // BOM para Excel
       var blob = new Blob([bom + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
       var url = URL.createObjectURL(blob);
@@ -548,7 +577,13 @@
   async function savePreSyncSnapshot() {
     try {
       var data = await getAllLocalData();
-      var json = JSON.stringify({ data: data, ts: new Date().toISOString() });
+      var lsData = {
+        recurringBills: localStorage.getItem(LS_RECURRING_BILLS) || '[]',
+        recurringRecords: localStorage.getItem(LS_RECURRING_RECORDS) || '{}',
+        achievements: localStorage.getItem(LS_ACHIEVEMENTS) || '[]',
+        paidDebts: localStorage.getItem(LS_PAID_DEBTS) || '[]'
+      };
+      var json = JSON.stringify({ data: data, lsData: lsData, ts: new Date().toISOString() });
       if (json.length < 2 * 1024 * 1024) {
         localStorage.setItem(LS_PRE_SYNC_SNAPSHOT, json);
       }
@@ -567,6 +602,13 @@
       var data = snapshot.data;
       for (var i = 0; i < SYNC_KEYS.length; i++) {
         if (data[SYNC_KEYS[i]] != null && lf) await lf.setItem(SYNC_KEYS[i], data[SYNC_KEYS[i]]);
+      }
+      // Restaurar datos localStorage del snapshot
+      if (snapshot.lsData) {
+        if (snapshot.lsData.recurringBills) localStorage.setItem(LS_RECURRING_BILLS, snapshot.lsData.recurringBills);
+        if (snapshot.lsData.recurringRecords) localStorage.setItem(LS_RECURRING_RECORDS, snapshot.lsData.recurringRecords);
+        if (snapshot.lsData.achievements) localStorage.setItem(LS_ACHIEVEMENTS, snapshot.lsData.achievements);
+        if (snapshot.lsData.paidDebts) localStorage.setItem(LS_PAID_DEBTS, snapshot.lsData.paidDebts);
       }
       showToast('\u2705 Datos revertidos. Recargando...');
       setTimeout(function() { location.reload(); }, 1500);
@@ -756,7 +798,7 @@
       return s + parseFloat(d.monthlyPayment || d.cuota || d.minimumPayment || 0);
     }, 0);
 
-    // Calcular pagos mensuales promedio de los últimos 6 meses
+    // Calcular pagos mensuales promedio de los Ãºltimos 6 meses
     var now = new Date();
     var sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
     var recentPayments = payments.filter(function(p) {
@@ -796,7 +838,7 @@
       var totalPay = monthly + extra;
       if (totalPay <= 0) { showToast('\u26A0\uFE0F Ingresa un pago mensual'); return; }
 
-      // Simulación simplificada (promedio de tasas)
+      // SimulaciÃ³n simplificada (promedio de tasas)
       var avgRate = debts.reduce(function(s, d) { return s + parseFloat(d.interestRate || d.tasaInteres || 0); }, 0) / debts.length;
       var monthlyRate = avgRate / 100 / 12;
       var balance = totalDebt;
@@ -826,7 +868,7 @@
       var remainMonths = months % 12;
       var timeStr = (years > 0 ? years + ' a\u00f1o' + (years !== 1 ? 's' : '') + ' ' : '') + remainMonths + ' mes' + (remainMonths !== 1 ? 'es' : '');
 
-      // Comparación con y sin extra
+      // ComparaciÃ³n con y sin extra
       var monthsNoExtra = 0;
       if (extra > 0) {
         var bal2 = totalDebt;
@@ -857,7 +899,7 @@
   }
 
   // ============================================================
-  // Comparador de Préstamos
+  // Comparador de PrÃ©stamos
   // ============================================================
   function showLoanComparator() {
     var t = getThemeColors();
@@ -961,7 +1003,7 @@
   }
 
   // ============================================================
-  // Resumen por Categoría
+  // Resumen por CategorÃ­a
   // ============================================================
   async function showCategoryBreakdown() {
     var data = await getAllLocalData();
@@ -990,7 +1032,7 @@
       return;
     }
 
-    // Agrupar por categoría
+    // Agrupar por categorÃ­a
     var categories = {};
     var totalDebt = 0;
     debts.forEach(function(d) {
@@ -1018,7 +1060,7 @@
       + '<div style="font-size:24px;font-weight:700;color:#FF3B30">' + currency + formatNumber(totalDebt) + '</div>'
       + '<div style="font-size:11px;color:' + t.muted + '">' + debts.length + ' deuda' + (debts.length !== 1 ? 's' : '') + ' en ' + sorted.length + ' categor\u00eda' + (sorted.length !== 1 ? 's' : '') + '</div></div>';
 
-    // Barra de composición horizontal
+    // Barra de composiciÃ³n horizontal
     html += '<div style="display:flex;border-radius:8px;overflow:hidden;height:24px;margin-bottom:16px">';
     sorted.forEach(function(cat, idx) {
       var pct = (categories[cat].total / totalDebt) * 100;
@@ -1027,7 +1069,7 @@
     });
     html += '</div>';
 
-    // Detalle por categoría
+    // Detalle por categorÃ­a
     sorted.forEach(function(cat, idx) {
       var info = categories[cat];
       var pct = (info.total / totalDebt) * 100;
@@ -1092,7 +1134,7 @@
       if (isOverdue) overdueDebts.push(entry);
       else currentDebts.push(entry);
     });
-    // Ordenar vencidas por más días de retraso
+    // Ordenar vencidas por mÃ¡s dÃ­as de retraso
     overdueDebts.sort(function(a, b) { return b.daysLate - a.daysLate; });
 
     var overlay = createModalOverlay();
@@ -1106,7 +1148,7 @@
     var iSt = 'width:100%;padding:10px;border-radius:8px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:13px;box-sizing:border-box;margin-top:4px;outline:none;';
     var selSt = iSt + 'appearance:auto;';
 
-    // Generar opciones del select — vencidas primero con indicador
+    // Generar opciones del select â€” vencidas primero con indicador
     var debtOptions = '<option value="">-- Selecciona una deuda --</option>';
     if (overdueDebts.length > 0) {
       debtOptions += '<optgroup label="\u26A0\uFE0F Deudas Vencidas (' + overdueDebts.length + ')">';
@@ -1165,7 +1207,7 @@
       // Panel de deudas vencidas
       + overduePanel
 
-      // Selección de deuda
+      // SelecciÃ³n de deuda
       + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Deuda</label>'
       + '<select class="dc-pa-debt-select" style="' + selSt + '">' + debtOptions + '</select>'
 
@@ -1214,7 +1256,7 @@
       + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Fecha de inicio del convenio</label>'
       + '<input class="dc-pa-start-date" type="date" value="' + new Date().toISOString().split('T')[0] + '" style="' + iSt + '"></div>'
 
-      // Botón calcular
+      // BotÃ³n calcular
       + '<button class="dc-pa-calc" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#FF9500,#FF3B30);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:16px">\uD83E\uDD1D Generar Convenio</button>'
       + '<div class="dc-pa-result" style="margin-top:16px"></div>';
 
@@ -1296,7 +1338,7 @@
         + '<div style="font-size:20px;font-weight:700;color:#34C759">' + currency + formatNumber(discount) + ' <span style="font-size:14px">(' + discountPct.toFixed(1) + '%)</span></div></div>';
 
       if (agreementType === 'lump') {
-        // ── Pago único ──
+        // â”€â”€ Pago Ãºnico â”€â”€
         html += '<div style="background:' + t.bg + ';border-radius:10px;padding:14px;text-align:center;border:2px solid #007AFF40">'
           + '<div style="font-size:13px;font-weight:600;color:#007AFF;margin-bottom:6px">\uD83D\uDCB5 Liquidaci\u00f3n en un Solo Pago</div>'
           + '<div style="font-size:11px;color:' + t.muted + '">Monto a pagar</div>'
@@ -1312,7 +1354,7 @@
           + '\u2022 Mejoras tu historial crediticio m\u00e1s r\u00e1pido</div>';
 
       } else {
-        // ── Plan de pagos ──
+        // â”€â”€ Plan de pagos â”€â”€
         var numPayments = parseInt(card.querySelector('.dc-pa-num-payments').value) || 0;
         var frequency = card.querySelector('.dc-pa-frequency').value;
         var annualRate = parseFloat(card.querySelector('.dc-pa-interest').value) || 0;
@@ -1325,7 +1367,7 @@
         var totalInterest = 0;
 
         if (annualRate > 0) {
-          // Calcular tasa por período según frecuencia
+          // Calcular tasa por perÃ­odo segÃºn frecuencia
           var periodsPerYear = frequency === 'weekly' ? 52 : (frequency === 'biweekly' ? 26 : 12);
           var periodRate = annualRate / 100 / periodsPerYear;
           monthlyPayment = agreedAmt * (periodRate * Math.pow(1 + periodRate, numPayments)) / (Math.pow(1 + periodRate, numPayments) - 1);
@@ -1381,7 +1423,7 @@
 
           tableText += p + '\t' + dateStr + '\t' + currency + formatNumber(thisPayment) + '\t' + currency + formatNumber(balance) + '\n';
 
-          // Avanzar fecha según frecuencia
+          // Avanzar fecha segÃºn frecuencia
           if (frequency === 'weekly') {
             payDate.setDate(payDate.getDate() + 7);
           } else if (frequency === 'biweekly') {
@@ -1393,7 +1435,7 @@
 
         html += '</tbody></table></div>';
 
-        // Fecha de término
+        // Fecha de tÃ©rmino
         var endDate = new Date(payDate.getTime());
         if (frequency === 'weekly') endDate.setDate(endDate.getDate() - 7);
         else if (frequency === 'biweekly') endDate.setDate(endDate.getDate() - 14);
@@ -1414,7 +1456,7 @@
             + '<div style="font-size:18px;font-weight:700;color:#FF3B30">+' + currency + formatNumber(Math.abs(realSaving)) + '</div></div>';
         }
 
-        // Botón copiar tabla
+        // BotÃ³n copiar tabla
         html += '<button class="dc-pa-copy" style="width:100%;padding:10px;border:1px solid ' + t.border + ';border-radius:10px;background:transparent;color:' + t.txt + ';font-size:13px;cursor:pointer;margin-top:10px">\uD83D\uDCCB Copiar Tabla al Portapapeles</button>';
 
         // Guardar referencia al texto de la tabla
@@ -1449,7 +1491,7 @@
   }
 
   // ============================================================
-  // Sistema de Logros y Motivación
+  // Sistema de Logros y MotivaciÃ³n
   // ============================================================
   var ACHIEVEMENTS_DEF = [
     { id: 'first_paid', icon: '\uD83C\uDF1F', title: 'Primer Paso', desc: 'Liquida tu primera deuda', xp: 50, check: function(pd) { return pd.length >= 1; } },
@@ -1556,7 +1598,7 @@
   }
 
   function calculateLevel(xp) {
-    // Cada nivel necesita 100 XP más que el anterior: nivel 1 = 100, nivel 2 = 300, nivel 3 = 600...
+    // Cada nivel necesita 100 XP mÃ¡s que el anterior: nivel 1 = 100, nivel 2 = 300, nivel 3 = 600...
     var level = 0;
     var needed = 0;
     while (xp >= needed + (level + 1) * 100) {
@@ -1629,7 +1671,7 @@
       + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Deuda</label>'
       + '<select class="dc-mpd-select" style="' + selSt + '">' + debtOptions + '</select>'
 
-      // Campos para deuda histórica
+      // Campos para deuda histÃ³rica
       + '<div class="dc-mpd-historic" style="display:none;margin-top:8px">'
       + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Nombre de la deuda</label>'
       + '<input class="dc-mpd-name" type="text" placeholder="Ej: Tarjeta VISA, Pr\u00e9stamo banco..." style="' + iSt + '">'
@@ -1663,7 +1705,7 @@
     card.querySelector('.dc-mpd-close').addEventListener('click', function() { overlay.remove(); });
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 
-    // Toggle campos históricos
+    // Toggle campos histÃ³ricos
     var sel = card.querySelector('.dc-mpd-select');
     sel.addEventListener('change', function() {
       card.querySelector('.dc-mpd-historic').style.display = sel.value === 'historic' ? 'block' : 'none';
@@ -1683,7 +1725,7 @@
       var entry = { id: 'pd_' + Date.now(), paidDate: card.querySelector('.dc-mpd-date').value || new Date().toISOString().split('T')[0], note: card.querySelector('.dc-mpd-note').value || '' };
 
       if (selVal === 'historic') {
-        // Deuda histórica
+        // Deuda histÃ³rica
         var hName = card.querySelector('.dc-mpd-name').value;
         var hAmount = parseFloat(card.querySelector('.dc-mpd-amount').value) || 0;
         if (!hName || hAmount <= 0) { showToast('\u26A0\uFE0F Ingresa nombre y monto de la deuda'); return; }
@@ -1811,7 +1853,7 @@
     // Historial de deudas liquidadas
     if (paidDebts.length > 0) {
       html += '<div style="font-size:14px;font-weight:700;margin:16px 0 10px 0">\uD83D\uDCDC Deudas Liquidadas</div>';
-      // Ordenar por fecha más reciente
+      // Ordenar por fecha mÃ¡s reciente
       var sorted = paidDebts.slice().sort(function(a, b) { return (b.paidDate || '').localeCompare(a.paidDate || ''); });
       sorted.forEach(function(d) {
         var dateStr = d.paidDate ? new Date(d.paidDate + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
@@ -1947,7 +1989,7 @@
         }
       }
       // Si tiene palabras como "banco", "tarjeta de", separar
-      var match = n.match(/(?:banco|bank|tarjeta|credito|pr[eé]stamo)\s+(?:de\s+)?(\w+)/i);
+      var match = n.match(/(?:banco|bank|tarjeta|credito|pr[eÃ©]stamo)\s+(?:de\s+)?(\w+)/i);
       if (match) return match[1].charAt(0).toUpperCase() + match[1].slice(1);
       return 'Sin entidad';
     }
@@ -1985,7 +2027,7 @@
       return;
     }
 
-    // Estadísticas
+    // EstadÃ­sticas
     var countActive = allDebts.filter(function(d) { return d.status === 'active'; }).length;
     var countOverdue = allDebts.filter(function(d) { return d.status === 'overdue'; }).length;
     var countPaid = allDebts.filter(function(d) { return d.status === 'paid'; }).length;
@@ -2014,7 +2056,7 @@
       + '<div style="font-size:18px;font-weight:800;color:#34C759">' + countPaid + '</div>'
       + '<div style="font-size:10px;color:' + t.muted + '">Liquidada' + (countPaid !== 1 ? 's' : '') + '</div></div></div>';
 
-    // Container dinámico
+    // Container dinÃ¡mico
     html += '<div class="dc-dh-content"></div>';
 
     html += '<button class="dc-dh-close2" style="width:100%;padding:12px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:14px;cursor:pointer;margin-top:12px">Cerrar</button>';
@@ -2206,13 +2248,13 @@
   }
 
   function showRecurringPayments() {
-    var t = getTheme();
+    var t = getThemeColors();
     var bills = getRecurringBills();
     var records = getRecurringRecords();
     var month = getCurrentMonth();
 
     function buildBillsList() {
-      if (!bills.length) return '<div style="text-align:center;padding:30px 10px;color:' + t.mutedText + '">'
+      if (!bills.length) return '<div style="text-align:center;padding:30px 10px;color:' + t.muted + '">'
         + '<div style="font-size:40px;margin-bottom:12px">\uD83D\uDCCB</div>'
         + '<div>No tienes gastos recurrentes registrados</div>'
         + '<div style="font-size:12px;margin-top:6px">Agrega servicios como celular, internet, luz, etc.</div></div>';
@@ -2228,8 +2270,8 @@
         html += '<div class="dc-rb-item" data-id="' + bill.id + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + t.inputBg + ';border-radius:10px;margin-bottom:8px;cursor:pointer">'
           + '<div style="font-size:24px;width:36px;text-align:center">' + cat.icon + '</div>'
           + '<div style="flex:1;min-width:0">'
-          + '<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + sanitize(bill.name) + '</div>'
-          + '<div style="font-size:11px;color:' + t.mutedText + '">' + cat.label
+          + '<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(bill.name) + '</div>'
+          + '<div style="font-size:11px;color:' + t.muted + '">' + cat.label
           + (bill.estimatedAmount ? ' \u2022 ~' + getCurrency() + Number(bill.estimatedAmount).toLocaleString() : '') + '</div></div>'
           + '<div style="text-align:right">'
           + '<div style="font-size:16px">' + statusIcon + '</div>'
@@ -2249,13 +2291,13 @@
       return '<div style="display:flex;gap:8px;margin-bottom:14px">'
         + '<div style="flex:1;background:#27ae6022;border-radius:10px;padding:10px;text-align:center">'
         + '<div style="font-size:18px;font-weight:700;color:#27ae60">' + registered + '</div>'
-        + '<div style="font-size:10px;color:' + t.mutedText + '">Registrados</div></div>'
+        + '<div style="font-size:10px;color:' + t.muted + '">Registrados</div></div>'
         + '<div style="flex:1;background:#e67e2222;border-radius:10px;padding:10px;text-align:center">'
         + '<div style="font-size:18px;font-weight:700;color:#e67e22">' + pending + '</div>'
-        + '<div style="font-size:10px;color:' + t.mutedText + '">Pendientes</div></div>'
-        + '<div style="flex:1;background:' + t.accent + '22;border-radius:10px;padding:10px;text-align:center">'
-        + '<div style="font-size:18px;font-weight:700;color:' + t.accent + '">' + getCurrency() + totalMonth.toLocaleString() + '</div>'
-        + '<div style="font-size:10px;color:' + t.mutedText + '">Total Mes</div></div></div>';
+        + '<div style="font-size:10px;color:' + t.muted + '">Pendientes</div></div>'
+        + '<div style="flex:1;background:#007AFF22;border-radius:10px;padding:10px;text-align:center">'
+        + '<div style="font-size:18px;font-weight:700;color:#007AFF">' + getCurrency() + totalMonth.toLocaleString() + '</div>'
+        + '<div style="font-size:10px;color:' + t.muted + '">Total Mes</div></div></div>';
     }
 
     var overlay = document.createElement('div');
@@ -2263,7 +2305,7 @@
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
 
     var card = document.createElement('div');
-    card.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:18px;max-width:440px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)';
+    card.style.cssText = 'background:' + t.bg + ';color:' + t.txt + ';border-radius:18px;max-width:440px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)';
 
     function render() {
       bills = getRecurringBills();
@@ -2272,16 +2314,16 @@
       card.innerHTML = '<div style="padding:18px 20px 14px;border-bottom:1px solid ' + t.border + ';display:flex;align-items:center;justify-content:space-between">'
         + '<div style="font-weight:700;font-size:17px">\uD83D\uDD04 Pagos Recurrentes</div>'
         + '<div style="display:flex;gap:8px;align-items:center">'
-        + '<button class="dc-rb-add" style="background:' + t.accent + ';color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer">+ Nuevo</button>'
-        + '<button class="dc-rb-close" style="background:none;border:none;cursor:pointer;font-size:22px;color:' + t.mutedText + '">\u2715</button></div></div>'
+        + '<button class="dc-rb-add" style="background:#007AFF;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer">+ Nuevo</button>'
+        + '<button class="dc-rb-close" style="background:none;border:none;cursor:pointer;font-size:22px;color:' + t.muted + '">\u2715</button></div></div>'
         + '<div style="padding:16px 20px;overflow-y:auto;flex:1">'
-        + '<div style="text-align:center;margin-bottom:14px;font-size:13px;color:' + t.mutedText + ';font-weight:600">\uD83D\uDCC5 ' + getMonthLabel(month) + '</div>'
+        + '<div style="text-align:center;margin-bottom:14px;font-size:13px;color:' + t.muted + ';font-weight:600">\uD83D\uDCC5 ' + getMonthLabel(month) + '</div>'
         + buildSummary()
         + '<div class="dc-rb-list">' + buildBillsList() + '</div>'
         + '</div>'
         + '<div style="padding:12px 20px;border-top:1px solid ' + t.border + ';display:flex;gap:8px">'
-        + '<button class="dc-rb-history" style="flex:1;background:' + t.inputBg + ';color:' + t.text + ';border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">\uD83D\uDCCA Historial</button>'
-        + '<button class="dc-rb-close2" style="flex:1;background:' + t.accent + ';color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">Cerrar</button></div>';
+        + '<button class="dc-rb-history" style="flex:1;background:' + t.inputBg + ';color:' + t.txt + ';border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">\uD83D\uDCCA Historial</button>'
+        + '<button class="dc-rb-close2" style="flex:1;background:#007AFF;color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">Cerrar</button></div>';
 
       card.querySelector('.dc-rb-close').addEventListener('click', function() { overlay.remove(); });
       card.querySelector('.dc-rb-close2').addEventListener('click', function() { overlay.remove(); });
@@ -2305,17 +2347,17 @@
       formOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px';
 
       var form = document.createElement('div');
-      form.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:16px;max-width:380px;width:100%;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,.3)';
+      form.style.cssText = 'background:' + t.bg + ';color:' + t.txt + ';border-radius:16px;max-width:380px;width:100%;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,.3)';
       form.innerHTML = '<div style="font-weight:700;font-size:16px;margin-bottom:16px">\u2795 Nuevo Gasto Recurrente</div>'
         + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Nombre del servicio</label>'
-        + '<input id="dc-rb-name" placeholder="Ej: Telcel, Telmex, CFE..." style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;margin-bottom:12px;box-sizing:border-box" />'
+        + '<input id="dc-rb-name" placeholder="Ej: Telcel, Telmex, CFE..." style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;margin-bottom:12px;box-sizing:border-box" />'
         + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Categor\u00eda</label>'
-        + '<select id="dc-rb-cat" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;margin-bottom:12px;box-sizing:border-box">' + catHtml + '</select>'
+        + '<select id="dc-rb-cat" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;margin-bottom:12px;box-sizing:border-box">' + catHtml + '</select>'
         + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Monto estimado mensual (opcional)</label>'
-        + '<input id="dc-rb-amount" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;margin-bottom:16px;box-sizing:border-box" />'
+        + '<input id="dc-rb-amount" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;margin-bottom:16px;box-sizing:border-box" />'
         + '<div style="display:flex;gap:8px">'
-        + '<button id="dc-rb-cancel" style="flex:1;padding:10px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;font-weight:600;cursor:pointer">Cancelar</button>'
-        + '<button id="dc-rb-save" style="flex:1;padding:10px;border-radius:10px;border:none;background:' + t.accent + ';color:#fff;font-size:14px;font-weight:600;cursor:pointer">Guardar</button></div>';
+        + '<button id="dc-rb-cancel" style="flex:1;padding:10px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;font-weight:600;cursor:pointer">Cancelar</button>'
+        + '<button id="dc-rb-save" style="flex:1;padding:10px;border-radius:10px;border:none;background:#007AFF;color:#fff;font-size:14px;font-weight:600;cursor:pointer">Guardar</button></div>';
 
       formOverlay.appendChild(form);
       document.body.appendChild(formOverlay);
@@ -2347,27 +2389,27 @@
       actOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px';
 
       var actCard = document.createElement('div');
-      actCard.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:16px;max-width:360px;width:100%;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,.3)';
+      actCard.style.cssText = 'background:' + t.bg + ';color:' + t.txt + ';border-radius:16px;max-width:360px;width:100%;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,.3)';
 
       var statusHtml = rec
         ? '<div style="background:#27ae6018;border-radius:10px;padding:12px;margin-bottom:16px">'
           + '<div style="font-size:12px;color:#27ae60;font-weight:600">\u2705 Registrado este mes</div>'
           + '<div style="font-size:20px;font-weight:700;color:#27ae60;margin-top:4px">' + getCurrency() + Number(rec.amount).toLocaleString() + '</div>'
-          + '<div style="font-size:11px;color:' + t.mutedText + '">' + new Date(rec.date).toLocaleDateString() + '</div></div>'
+          + '<div style="font-size:11px;color:' + t.muted + '">' + new Date(rec.date).toLocaleDateString() + '</div></div>'
         : '<div style="background:#e67e2218;border-radius:10px;padding:12px;margin-bottom:16px">'
           + '<div style="font-size:12px;color:#e67e22;font-weight:600">\u23F3 Pendiente este mes</div>'
-          + (bill.estimatedAmount ? '<div style="font-size:14px;color:' + t.mutedText + ';margin-top:4px">Estimado: ' + getCurrency() + Number(bill.estimatedAmount).toLocaleString() + '</div>' : '')
+          + (bill.estimatedAmount ? '<div style="font-size:14px;color:' + t.muted + ';margin-top:4px">Estimado: ' + getCurrency() + Number(bill.estimatedAmount).toLocaleString() + '</div>' : '')
           + '</div>';
 
       actCard.innerHTML = '<div style="text-align:center;margin-bottom:16px">'
         + '<div style="font-size:36px;margin-bottom:8px">' + cat.icon + '</div>'
-        + '<div style="font-weight:700;font-size:16px">' + sanitize(bill.name) + '</div>'
-        + '<div style="font-size:12px;color:' + t.mutedText + '">' + cat.label + '</div></div>'
+        + '<div style="font-weight:700;font-size:16px">' + escapeHtml(bill.name) + '</div>'
+        + '<div style="font-size:12px;color:' + t.muted + '">' + cat.label + '</div></div>'
         + statusHtml
         + '<div style="display:flex;flex-direction:column;gap:8px">'
-        + '<button class="dc-rb-register" style="width:100%;padding:11px;border-radius:10px;border:none;background:' + t.accent + ';color:#fff;font-size:14px;font-weight:600;cursor:pointer">' + (rec ? '\uD83D\uDD04 Actualizar Monto' : '\uD83D\uDCB0 Registrar Monto') + '</button>'
+        + '<button class="dc-rb-register" style="width:100%;padding:11px;border-radius:10px;border:none;background:#007AFF;color:#fff;font-size:14px;font-weight:600;cursor:pointer">' + (rec ? '\uD83D\uDD04 Actualizar Monto' : '\uD83D\uDCB0 Registrar Monto') + '</button>'
         + '<button class="dc-rb-delete" style="width:100%;padding:11px;border-radius:10px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;font-size:14px;font-weight:600;cursor:pointer">\uD83D\uDDD1\uFE0F Eliminar Servicio</button>'
-        + '<button class="dc-rb-back" style="width:100%;padding:11px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;font-weight:600;cursor:pointer">Volver</button></div>';
+        + '<button class="dc-rb-back" style="width:100%;padding:11px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;font-weight:600;cursor:pointer">Volver</button></div>';
 
       actOverlay.appendChild(actCard);
       document.body.appendChild(actOverlay);
@@ -2408,7 +2450,7 @@
       histOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px';
 
       var histCard = document.createElement('div');
-      histCard.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:16px;max-width:420px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.3)';
+      histCard.style.cssText = 'background:' + t.bg + ';color:' + t.txt + ';border-radius:16px;max-width:420px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.3)';
 
       // Recolectar todos los meses con registros
       var allMonths = {};
@@ -2419,7 +2461,7 @@
 
       var histHtml = '';
       if (!sortedMonths.length) {
-        histHtml = '<div style="text-align:center;padding:30px;color:' + t.mutedText + '">No hay registros a\u00fan</div>';
+        histHtml = '<div style="text-align:center;padding:30px;color:' + t.muted + '">No hay registros a\u00fan</div>';
       } else {
         sortedMonths.forEach(function(m) {
           var monthTotal = 0;
@@ -2430,24 +2472,24 @@
               var catObj = RECURRING_CATEGORIES.find(function(c) { return c.id === bill.category; }) || RECURRING_CATEGORIES[RECURRING_CATEGORIES.length - 1];
               monthTotal += Number(rec.amount) || 0;
               rows += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px">'
-                + '<span>' + catObj.icon + ' ' + sanitize(bill.name) + '</span>'
+                + '<span>' + catObj.icon + ' ' + escapeHtml(bill.name) + '</span>'
                 + '<span style="font-weight:600">' + getCurrency() + Number(rec.amount).toLocaleString() + '</span></div>';
             }
           });
           histHtml += '<div style="margin-bottom:16px">'
             + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
             + '<div style="font-weight:700;font-size:14px">\uD83D\uDCC5 ' + getMonthLabel(m) + '</div>'
-            + '<div style="font-weight:700;color:' + t.accent + ';font-size:14px">' + getCurrency() + monthTotal.toLocaleString() + '</div></div>'
+            + '<div style="font-weight:700;color:#007AFF;font-size:14px">' + getCurrency() + monthTotal.toLocaleString() + '</div></div>'
             + rows + '</div>';
         });
       }
 
       histCard.innerHTML = '<div style="padding:18px 20px 14px;border-bottom:1px solid ' + t.border + ';display:flex;justify-content:space-between;align-items:center">'
         + '<div style="font-weight:700;font-size:16px">\uD83D\uDCCA Historial de Gastos Fijos</div>'
-        + '<button class="dc-rbh-close" style="background:none;border:none;cursor:pointer;font-size:20px;color:' + t.mutedText + '">\u2715</button></div>'
+        + '<button class="dc-rbh-close" style="background:none;border:none;cursor:pointer;font-size:20px;color:' + t.muted + '">\u2715</button></div>'
         + '<div style="padding:16px 20px;overflow-y:auto;flex:1">' + histHtml + '</div>'
         + '<div style="padding:12px 20px;border-top:1px solid ' + t.border + '">'
-        + '<button class="dc-rbh-close2" style="width:100%;padding:10px;border-radius:10px;border:none;background:' + t.accent + ';color:#fff;font-size:14px;font-weight:600;cursor:pointer">Cerrar</button></div>';
+        + '<button class="dc-rbh-close2" style="width:100%;padding:10px;border-radius:10px;border:none;background:#007AFF;color:#fff;font-size:14px;font-weight:600;cursor:pointer">Cerrar</button></div>';
 
       histOverlay.appendChild(histCard);
       document.body.appendChild(histOverlay);
@@ -2483,31 +2525,31 @@
       return;
     }
 
-    var t = getTheme();
+    var t = getThemeColors();
     var overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
 
     var card = document.createElement('div');
-    card.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:18px;max-width:400px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)';
+    card.style.cssText = 'background:' + t.bg + ';color:' + t.txt + ';border-radius:18px;max-width:400px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)';
 
     var listHtml = pending.map(function(bill) {
       var cat = RECURRING_CATEGORIES.find(function(c) { return c.id === bill.category; }) || RECURRING_CATEGORIES[RECURRING_CATEGORIES.length - 1];
       return '<div class="dc-rbc-item" data-id="' + bill.id + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + t.inputBg + ';border-radius:10px;margin-bottom:8px;cursor:pointer">'
         + '<div style="font-size:22px;width:32px;text-align:center">' + cat.icon + '</div>'
         + '<div style="flex:1;min-width:0">'
-        + '<div style="font-weight:600;font-size:14px">' + sanitize(bill.name) + '</div>'
-        + (bill.estimatedAmount ? '<div style="font-size:11px;color:' + t.mutedText + '">Estimado: ' + getCurrency() + Number(bill.estimatedAmount).toLocaleString() + '</div>' : '')
+        + '<div style="font-weight:600;font-size:14px">' + escapeHtml(bill.name) + '</div>'
+        + (bill.estimatedAmount ? '<div style="font-size:11px;color:' + t.muted + '">Estimado: ' + getCurrency() + Number(bill.estimatedAmount).toLocaleString() + '</div>' : '')
         + '</div>'
         + '<div style="font-size:13px;color:#e67e22;font-weight:600">\uD83D\uDCB0 Registrar</div></div>';
     }).join('');
 
     card.innerHTML = '<div style="padding:18px 20px 14px;border-bottom:1px solid ' + t.border + '">'
       + '<div style="font-weight:700;font-size:17px">\uD83D\uDD14 Gastos Pendientes de ' + getMonthLabel(month) + '</div>'
-      + '<div style="font-size:12px;color:' + t.mutedText + ';margin-top:4px">Tienes ' + pending.length + ' servicio' + (pending.length > 1 ? 's' : '') + ' sin registrar este mes</div></div>'
+      + '<div style="font-size:12px;color:' + t.muted + ';margin-top:4px">Tienes ' + pending.length + ' servicio' + (pending.length > 1 ? 's' : '') + ' sin registrar este mes</div></div>'
       + '<div style="padding:16px 20px;overflow-y:auto;flex:1">' + listHtml + '</div>'
       + '<div style="padding:12px 20px;border-top:1px solid ' + t.border + ';display:flex;gap:8px">'
-      + '<button class="dc-rbc-later" style="flex:1;padding:10px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:13px;font-weight:600;cursor:pointer">Recordar despu\u00e9s</button>'
-      + '<button class="dc-rbc-dismiss" style="flex:1;padding:10px;border-radius:10px;border:none;background:' + t.accent + ';color:#fff;font-size:13px;font-weight:600;cursor:pointer">Lo har\u00e9 luego</button></div>';
+      + '<button class="dc-rbc-later" style="flex:1;padding:10px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:13px;font-weight:600;cursor:pointer">Recordar despu\u00e9s</button>'
+      + '<button class="dc-rbc-dismiss" style="flex:1;padding:10px;border-radius:10px;border:none;background:#007AFF;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Lo har\u00e9 luego</button></div>';
 
     overlay.appendChild(card);
     document.body.appendChild(overlay);
@@ -2555,7 +2597,7 @@
   async function exportToPDF() {
     showToast('\uD83D\uDCC4 Generando PDF...');
     try {
-      // Cargar jsPDF si no está disponible
+      // Cargar jsPDF si no estÃ¡ disponible
       if (!window.jspdf) {
         await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
       }
@@ -2646,7 +2688,7 @@
         y += 5;
       }
 
-      // Últimos Pagos
+      // Ãšltimos Pagos
       if (payments.length > 0) {
         y = checkPageBreak(doc, y, 30);
         doc.setFontSize(16);
@@ -2787,6 +2829,11 @@
       showToast('\u2601\uFE0F Subiendo datos...');
       var data = await getAllLocalData();
       var pin = getSyncPin();
+      // Incluir datos localStorage en la data para sync
+      data._recurringBills = localStorage.getItem(LS_RECURRING_BILLS) || '[]';
+      data._recurringRecords = localStorage.getItem(LS_RECURRING_RECORDS) || '{}';
+      data._achievements = localStorage.getItem(LS_ACHIEVEMENTS) || '[]';
+      data._paidDebts = localStorage.getItem(LS_PAID_DEBTS) || '[]';
       var payload = {
         _lastSync: new Date().toISOString(),
         _version: SYNC_VERSION,
@@ -2840,6 +2887,11 @@
       for (var i = 0; i < SYNC_KEYS.length; i++) {
         if (data[SYNC_KEYS[i]] != null && lf) await lf.setItem(SYNC_KEYS[i], data[SYNC_KEYS[i]]);
       }
+      // Restaurar datos localStorage desde la nube
+      if (data._recurringBills) localStorage.setItem(LS_RECURRING_BILLS, data._recurringBills);
+      if (data._recurringRecords) localStorage.setItem(LS_RECURRING_RECORDS, data._recurringRecords);
+      if (data._achievements) localStorage.setItem(LS_ACHIEVEMENTS, data._achievements);
+      if (data._paidDebts) localStorage.setItem(LS_PAID_DEBTS, data._paidDebts);
       logSyncEvent('download', true, 'Datos descargados correctamente');
       showToast('\u2705 Datos restaurados. Recargando...');
       setTimeout(function() { location.reload(); }, 1500);
@@ -2910,7 +2962,7 @@
     panel.querySelector('.dc-hist-close').addEventListener('click', function() { overlay.remove(); });
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 
-    // Botón limpiar historial
+    // BotÃ³n limpiar historial
     if (history.length > 0) {
       var clearBtn = document.createElement('button');
       clearBtn.textContent = '\uD83D\uDDD1\uFE0F Limpiar Historial';
@@ -3205,7 +3257,7 @@
         }
       });
 
-      // Días del mes
+      // DÃ­as del mes
       var firstDay = new Date(year, month, 1).getDay();
       firstDay = firstDay === 0 ? 6 : firstDay - 1; // Lunes = 0
       var daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -3321,7 +3373,7 @@
   }
 
   // ============================================================
-  // Configuración de moneda
+  // ConfiguraciÃ³n de moneda
   // ============================================================
   function showCurrencyConfig() {
     var t = getThemeColors();
@@ -3421,7 +3473,7 @@
   }
 
   // ============================================================
-  // Sesión configurable (UI)
+  // SesiÃ³n configurable (UI)
   // ============================================================
   function showSessionConfig() {
     var t = getThemeColors();
@@ -3502,7 +3554,7 @@
   }
 
   // ============================================================
-  // Panel configuración Firebase (ARREGLADO: sin XSS)
+  // Panel configuraciÃ³n Firebase (ARREGLADO: sin XSS)
   // ============================================================
   function showFirebaseSetup() {
     var existing = document.getElementById('dc-setup-overlay');
@@ -3697,7 +3749,7 @@
   }
 
   // ============================================================
-  // Limpieza de datos huérfanos
+  // Limpieza de datos huÃ©rfanos
   // ============================================================
   function cleanupOrphanData() {
     try {
@@ -3913,19 +3965,19 @@
       }
       html += '</table></div>';
 
-      // Botón copiar tabla
+      // BotÃ³n copiar tabla
       html += '<button class="dc-amort-copy" style="width:100%;padding:12px;border:1px solid ' + t.border + ';border-radius:10px;background:transparent;color:' + t.txt + ';font-size:13px;cursor:pointer;margin-top:10px">\uD83D\uDCCB Copiar Tabla al Portapapeles</button>';
 
       card.querySelector('.dc-amort-result').innerHTML = html;
 
       // Generar texto plano para copiar
       card.querySelector('.dc-amort-copy').addEventListener('click', function() {
-        var lines = ['# Amortización - ' + currency + formatNumber(amount) + ' al ' + annualRate + '% en ' + months + ' meses'];
+        var lines = ['# AmortizaciÃ³n - ' + currency + formatNumber(amount) + ' al ' + annualRate + '% en ' + months + ' meses'];
         lines.push('Cuota mensual: ' + currency + formatNumber(payment));
         lines.push('Total a pagar: ' + currency + formatNumber(totalPaid));
         lines.push('Total intereses: ' + currency + formatNumber(totalInterest));
         lines.push('');
-        lines.push('#\tCuota\tCapital\tInterés\tSaldo');
+        lines.push('#\tCuota\tCapital\tInterÃ©s\tSaldo');
         var bal2 = amount;
         for (var j = 1; j <= months; j++) {
           var int2 = bal2 * monthlyRate;
@@ -4125,7 +4177,7 @@
   }
 
   // ============================================================
-  // UI: Botón flotante y menú
+  // UI: BotÃ³n flotante y menÃº
   // ============================================================
   function updateFabBadge() {
     var fab = document.getElementById('dc-sync-fab');
@@ -4272,7 +4324,7 @@
     new MutationObserver(applyMenuTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     updateFabBadge();
 
-    // Tecla Escape para cerrar modales + Accesos rápidos de teclado
+    // Tecla Escape para cerrar modales + Accesos rÃ¡pidos de teclado
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
         var overlays = document.querySelectorAll('.dc-modal-overlay, #dc-calendar-overlay, #dc-setup-overlay, #dc-change-code-modal');
@@ -4284,7 +4336,7 @@
         }
         return;
       }
-      // Accesos rápidos (Ctrl/Cmd + tecla) — solo si no hay modal/input abierto
+      // Accesos rÃ¡pidos (Ctrl/Cmd + tecla) â€” solo si no hay modal/input abierto
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
         var tag = (document.activeElement || {}).tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -4292,12 +4344,12 @@
         if (hasModal) return;
         var key = e.key.toLowerCase();
         var shortcut = {
-          'e': exportToJSON,        // Ctrl+E → Exportar JSON
-          'p': exportToPDF,         // Ctrl+P → PDF (nuestro, no del navegador)
-          'u': syncToCloud,         // Ctrl+U → Upload (Subir)
-          'd': syncFromCloud,       // Ctrl+D → Download (Descargar)
-          'f': showFinancialSummary,// Ctrl+F → Resumen Financiero
-          'k': showCalendar         // Ctrl+K → Calendario
+          'e': exportToJSON,        // Ctrl+E â†’ Exportar JSON
+          'p': exportToPDF,         // Ctrl+P â†’ PDF (nuestro, no del navegador)
+          'u': syncToCloud,         // Ctrl+U â†’ Upload (Subir)
+          'd': syncFromCloud,       // Ctrl+D â†’ Download (Descargar)
+          'f': showFinancialSummary,// Ctrl+F â†’ Resumen Financiero
+          'k': showCalendar         // Ctrl+K â†’ Calendario
         };
         if (shortcut[key]) {
           e.preventDefault();
@@ -4347,7 +4399,7 @@
   }
 
   // ============================================================
-  // Auto-backup local (fix: tamaño controlado)
+  // Auto-backup local (fix: tamaÃ±o controlado)
   // ============================================================
   function setupAutoBackup() {
     setInterval(async function() {

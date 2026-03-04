@@ -1,5 +1,5 @@
 ﻿/**
- * DebtControl Pro - Cloud Sync Module v7.0.1
+ * DebtControl Pro - Cloud Sync Module v7.1.0
  * SincronizaciÃ³n + herramientas financieras
  *
  * v7.0 cambios:
@@ -49,7 +49,7 @@
   // Constantes
   // ============================================================
   var SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
-  var SYNC_VERSION = '7.0.1';
+  var SYNC_VERSION = '7.1.0';
   var DB_URL_KEY = 'debtcontrol_guard_dburl';
   var LS_LEGACY_CONFIG = 'debtcontrol_firebase_config';
   var LS_SYNC_ID = 'debtcontrol_sync_id';
@@ -4203,153 +4203,59 @@
     style.textContent = ''
       + '@keyframes dcToastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}'
       + '@keyframes dcFadeIn{from{opacity:0}to{opacity:1}}'
-      + '#dc-sync-fab:active{transform:scale(0.9)!important}'
-      + '#dc-sync-menu button:active{background:rgba(0,122,255,0.1)!important}'
-      + '#dc-sync-menu{scrollbar-width:thin}';
+      + '@keyframes dcSlideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}'
+      + '#dc-sync-fab{transition:transform 0.15s,box-shadow 0.15s}'
+      + '#dc-sync-fab:active{transform:scale(0.88)!important}'
+      + '.dc-hub-overlay{animation:dcFadeIn 0.2s ease}'
+      + '.dc-hub-card{animation:dcSlideUp 0.25s ease}'
+      + '.dc-hub-tile{transition:transform 0.12s,box-shadow 0.12s}'
+      + '.dc-hub-tile:active{transform:scale(0.93)!important}'
+      + '.dc-hub-cat-btn{transition:background 0.15s,color 0.15s}'
+      + '.dc-hub-card{scrollbar-width:thin}';
     document.head.appendChild(style);
 
+    // FAB - Bot\u00f3n flotante principal
     var fab = document.createElement('button');
     fab.id = 'dc-sync-fab';
-    fab.innerHTML = '\u2601\uFE0F';
+    fab.innerHTML = '\u2699\uFE0F';
     Object.assign(fab.style, {
-      position: 'fixed', bottom: '100px', right: '16px', width: '52px', height: '52px',
+      position: 'fixed', bottom: '100px', right: '16px', width: '54px', height: '54px',
       borderRadius: '50%', border: 'none',
       background: 'linear-gradient(135deg, #007AFF, #5856D6)',
       color: 'white', fontSize: '24px', cursor: 'pointer', zIndex: '9998',
-      boxShadow: '0 4px 15px rgba(0,122,255,0.4)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      transition: 'transform 0.15s'
+      boxShadow: '0 4px 18px rgba(0,122,255,0.4)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center'
     });
     fab.addEventListener('click', function(e) { e.stopPropagation(); toggleMenu(); });
     document.body.appendChild(fab);
 
-    var menu = document.createElement('div');
-    menu.id = 'dc-sync-menu';
-    Object.assign(menu.style, {
-      position: 'fixed', right: '16px',
-      borderRadius: '16px', boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
-      zIndex: '9997', display: 'none', overflow: 'hidden auto', minWidth: '250px',
-      maxHeight: '70vh',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-    });
-
-    var items = [
-      { header: '\uD83D\uDCC1 Archivo' },
-      { icon: '\uD83D\uDCE5', label: 'Exportar Backup (JSON)', action: exportToJSON },
-      { icon: '\uD83D\uDCC4', label: 'Exportar Reporte PDF', action: exportToPDF },
-      { icon: '\uD83D\uDCCA', label: 'Exportar CSV (Excel)', action: exportToCSV },
-      { icon: '\uD83D\uDCE4', label: 'Importar Backup (JSON)', action: importFromJSON },
-      { sep: true },
-      { header: '\u2601\uFE0F Nube' },
-      { icon: '\u2B06\uFE0F', label: 'Subir a la Nube', action: syncToCloud },
-      { icon: '\u2B07\uFE0F', label: 'Descargar de la Nube', action: syncFromCloud },
-      { icon: '\u23EA', label: 'Revertir \u00faltimo Sync', action: restorePreSyncSnapshot },
-      { sep: true },
-      { header: '\uD83D\uDCC5 Planificaci\u00f3n' },
-      { icon: '\uD83D\uDCC5', label: 'Calendario de Pagos', action: showCalendar },
-      { icon: '\uD83D\uDD14', label: 'Notificaciones', action: showNotificationConfig },
-      { icon: '\uD83D\uDCB1', label: 'Moneda', action: showCurrencyConfig },
-      { icon: '\uD83D\uDD04', label: 'Pagos Recurrentes', action: showRecurringPayments },
-      { sep: true },
-      { header: '\uD83D\uDCCA Herramientas' },
-      { icon: '\uD83D\uDCCA', label: 'Resumen Financiero', action: showFinancialSummary },
-      { icon: '\uD83E\uDDEE', label: 'Calculadora Amortizaci\u00f3n', action: showAmortizationCalc },
-      { icon: '\u2696\uFE0F', label: 'Snowball vs Avalanche', action: showDebtStrategy },
-      { icon: '\uD83D\uDCC9', label: 'Ratio Deuda/Ingreso', action: showDTICalculator },
-      { icon: '\uD83C\uDFC1', label: 'Fecha Libre de Deudas', action: showDebtFreeDate },
-      { icon: '\uD83D\uDD0D', label: 'Comparar Pr\u00e9stamos', action: showLoanComparator },
-      { icon: '\uD83D\uDCCA', label: 'Desglose por Categor\u00eda', action: showCategoryBreakdown },
-      { icon: '\uD83E\uDD1D', label: 'Convenio de Pago', action: showPaymentAgreement },
-      { sep: true },
-      { header: '\uD83C\uDFC6 Progreso' },
-      { icon: '\uD83C\uDFC6', label: 'Mis Logros y XP', action: showAchievementsScreen },
-      { icon: '\u2705', label: 'Registrar Deuda Liquidada', action: showMarkDebtPaid },
-      { icon: '\uD83D\uDCCB', label: 'Historial de Deudas', action: showDebtHistory },
-      { sep: true },
-      { header: '\u2699\uFE0F Ajustes' },
-      { icon: '\u2699\uFE0F', label: 'Configurar Firebase', action: showFirebaseSetup },
-      { icon: '\uD83D\uDCCB', label: 'Historial de Sync', action: showSyncHistory },
-      { icon: '\uD83D\uDD12', label: 'Cambiar C\u00f3digo de Acceso', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.changeCode(); else showToast('Guard no disponible'); } },
-      { icon: '\u23F0', label: 'Duraci\u00f3n de Sesi\u00f3n', action: showSessionConfig },
-      { icon: '\uD83C\uDF19', label: 'Cambiar Tema', action: toggleTheme },
-      { icon: '\uD83D\uDD10', label: 'Biometr\u00eda', action: showBiometricConfig },
-      { sep: true }
-    ];
-
-    items.push({ icon: '\uD83D\uDCF2', label: 'Instalar App', action: installApp });
-    items.push({ icon: '\u2139\uFE0F', label: 'Acerca de', action: showAbout });
-    items.push({ icon: '\uD83D\uDD10', label: 'Bloquear App', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.lock(); else { localStorage.removeItem('debtcontrol_auth_session'); location.reload(); } } });
-    items.push({ icon: '\uD83D\uDEAA', label: 'Cerrar Sesi\u00f3n', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.logout(); else { localStorage.removeItem('debtcontrol_auth_session'); location.reload(); } } });
-
-    items.forEach(function(item) {
-      if (item.sep) {
-        var s = document.createElement('div');
-        s.className = 'dc-sep';
-        Object.assign(s.style, { height: '1px', margin: '0' });
-        menu.appendChild(s);
-        return;
-      }
-      if (item.header) {
-        var h = document.createElement('div');
-        h.className = 'dc-menu-header';
-        h.textContent = item.header;
-        Object.assign(h.style, {
-          padding: '8px 16px 4px 16px', fontSize: '11px', fontWeight: '700',
-          textTransform: 'uppercase', letterSpacing: '0.5px', opacity: '0.5'
-        });
-        menu.appendChild(h);
-        return;
-      }
-      var btn = document.createElement('button');
-      btn.innerHTML = '<span style="margin-right:10px;font-size:18px">' + item.icon + '</span>' + item.label;
-      Object.assign(btn.style, {
-        display: 'flex', alignItems: 'center', width: '100%', padding: '13px 16px',
-        border: 'none', background: 'transparent', cursor: 'pointer',
-        fontSize: '14px', fontWeight: '500', textAlign: 'left', transition: 'background 0.12s',
-        whiteSpace: 'nowrap'
-      });
-      btn.addEventListener('click', function() { if (navigator.vibrate) navigator.vibrate(10); toggleMenu(); item.action(); });
-      menu.appendChild(btn);
-    });
-
-    document.body.appendChild(menu);
-    applyMenuTheme();
-
-    document.addEventListener('click', function(e) {
-      if (!menu.contains(e.target) && e.target !== fab && !fab.contains(e.target)) {
-        menu.style.display = 'none';
-      }
-    });
-
-    new MutationObserver(applyMenuTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     updateFabBadge();
+    new MutationObserver(function() { updateFabBadge(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-    // Tecla Escape para cerrar modales + Accesos rÃ¡pidos de teclado
+    // Atajos de teclado
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
+        var hub = document.getElementById('dc-hub-overlay');
+        if (hub) { hub.remove(); return; }
         var overlays = document.querySelectorAll('.dc-modal-overlay, #dc-calendar-overlay, #dc-setup-overlay, #dc-change-code-modal');
         if (overlays.length > 0) {
           overlays[overlays.length - 1].remove();
-        } else {
-          var menu = document.getElementById('dc-sync-menu');
-          if (menu && menu.style.display !== 'none') menu.style.display = 'none';
         }
         return;
       }
-      // Accesos rÃ¡pidos (Ctrl/Cmd + tecla) â€” solo si no hay modal/input abierto
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
         var tag = (document.activeElement || {}).tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-        var hasModal = document.querySelector('.dc-modal-overlay, #dc-calendar-overlay, #dc-setup-overlay, #dc-change-code-modal');
+        var hasModal = document.querySelector('.dc-modal-overlay, #dc-calendar-overlay, #dc-setup-overlay, #dc-change-code-modal, #dc-hub-overlay');
         if (hasModal) return;
         var key = e.key.toLowerCase();
         var shortcut = {
-          'e': exportToJSON,        // Ctrl+E â†’ Exportar JSON
-          'p': exportToPDF,         // Ctrl+P â†’ PDF (nuestro, no del navegador)
-          'u': syncToCloud,         // Ctrl+U â†’ Upload (Subir)
-          'd': syncFromCloud,       // Ctrl+D â†’ Download (Descargar)
-          'f': showFinancialSummary,// Ctrl+F â†’ Resumen Financiero
-          'k': showCalendar         // Ctrl+K â†’ Calendario
+          'e': exportToJSON,
+          'p': exportToPDF,
+          'u': syncToCloud,
+          'd': syncFromCloud,
+          'f': showFinancialSummary,
+          'k': showCalendar
         };
         if (shortcut[key]) {
           e.preventDefault();
@@ -4360,42 +4266,185 @@
     });
   }
 
-  function applyMenuTheme() {
-    var menu = document.getElementById('dc-sync-menu');
-    if (!menu) return;
-    var isDark = isDarkMode();
-    menu.style.background = isDark ? '#16213e' : '#fff';
-    menu.querySelectorAll('button').forEach(function(b) { b.style.color = isDark ? '#fff' : '#333'; });
-    menu.querySelectorAll('.dc-sep').forEach(function(s) { s.style.background = isDark ? '#2d3748' : '#e9ecef'; });
-    menu.querySelectorAll('.dc-menu-header').forEach(function(h) { h.style.color = isDark ? '#8899aa' : '#666'; });
+  function toggleMenu() {
+    var existing = document.getElementById('dc-hub-overlay');
+    if (existing) { existing.remove(); return; }
+    showControlHub();
   }
 
-  function toggleMenu() {
-    var m = document.getElementById('dc-sync-menu');
-    if (!m) return;
-    if (m.style.display === 'none' || !m.style.display) {
-      // Mostrar fuera de pantalla para medir altura real
-      m.style.visibility = 'hidden';
-      m.style.display = 'block';
-      var menuH = m.scrollHeight;
-      m.style.visibility = '';
+  function showControlHub() {
+    var t = getThemeColors();
 
-      var fab = document.getElementById('dc-sync-fab');
-      var fabRect = fab.getBoundingClientRect();
-      var viewH = window.innerHeight;
-      menuH = Math.min(menuH, viewH * 0.7);
-
-      var bottom = viewH - fabRect.top + 8;
-      if (bottom + menuH > viewH - 20) {
-        m.style.bottom = 'auto';
-        m.style.top = Math.max(10, (viewH - menuH) / 2) + 'px';
-      } else {
-        m.style.top = 'auto';
-        m.style.bottom = bottom + 'px';
+    var categories = [
+      {
+        id: 'quick', label: 'Inicio', icon: '\u26A1',
+        tiles: [
+          { icon: '\uD83D\uDCCA', label: 'Resumen', action: showFinancialSummary, color: '#007AFF' },
+          { icon: '\uD83D\uDCC5', label: 'Calendario', action: showCalendar, color: '#5856D6' },
+          { icon: '\uD83D\uDD04', label: 'Recurrentes', action: showRecurringPayments, color: '#FF9500' },
+          { icon: '\uD83C\uDFC6', label: 'Logros', action: showAchievementsScreen, color: '#34C759' }
+        ]
+      },
+      {
+        id: 'tools', label: 'Herramientas', icon: '\uD83E\uDDEE',
+        tiles: [
+          { icon: '\uD83E\uDDEE', label: 'Amortizaci\u00f3n', action: showAmortizationCalc, color: '#007AFF' },
+          { icon: '\u2696\uFE0F', label: 'Snowball vs Avalanche', action: showDebtStrategy, color: '#5856D6' },
+          { icon: '\uD83D\uDCC9', label: 'Ratio Deuda', action: showDTICalculator, color: '#FF3B30' },
+          { icon: '\uD83C\uDFC1', label: 'Libre de Deudas', action: showDebtFreeDate, color: '#34C759' },
+          { icon: '\uD83D\uDD0D', label: 'Comparar Pr\u00e9stamos', action: showLoanComparator, color: '#FF9500' },
+          { icon: '\uD83D\uDCCA', label: 'Por Categor\u00eda', action: showCategoryBreakdown, color: '#AF52DE' },
+          { icon: '\uD83E\uDD1D', label: 'Convenio', action: showPaymentAgreement, color: '#007AFF' }
+        ]
+      },
+      {
+        id: 'progress', label: 'Progreso', icon: '\uD83C\uDFC6',
+        tiles: [
+          { icon: '\u2705', label: 'Liquidar Deuda', action: showMarkDebtPaid, color: '#34C759' },
+          { icon: '\uD83D\uDCCB', label: 'Historial', action: showDebtHistory, color: '#5856D6' }
+        ]
+      },
+      {
+        id: 'cloud', label: 'Nube y Backup', icon: '\u2601\uFE0F',
+        tiles: [
+          { icon: '\u2B06\uFE0F', label: 'Subir', action: syncToCloud, color: '#007AFF' },
+          { icon: '\u2B07\uFE0F', label: 'Descargar', action: syncFromCloud, color: '#34C759' },
+          { icon: '\u23EA', label: 'Revertir', action: restorePreSyncSnapshot, color: '#FF9500' },
+          { icon: '\uD83D\uDCE5', label: 'Backup JSON', action: exportToJSON, color: '#5856D6' },
+          { icon: '\uD83D\uDCC4', label: 'Reporte PDF', action: exportToPDF, color: '#FF3B30' },
+          { icon: '\uD83D\uDCCA', label: 'CSV Excel', action: exportToCSV, color: '#007AFF' },
+          { icon: '\uD83D\uDCE4', label: 'Importar', action: importFromJSON, color: '#FF9500' }
+        ]
+      },
+      {
+        id: 'settings', label: 'Ajustes', icon: '\u2699\uFE0F',
+        tiles: [
+          { icon: '\u2699\uFE0F', label: 'Firebase', action: showFirebaseSetup, color: '#FF9500' },
+          { icon: '\uD83D\uDD14', label: 'Notificaciones', action: showNotificationConfig, color: '#FF3B30' },
+          { icon: '\uD83D\uDCB1', label: 'Moneda', action: showCurrencyConfig, color: '#34C759' },
+          { icon: '\uD83C\uDF19', label: 'Tema', action: toggleTheme, color: '#5856D6' },
+          { icon: '\u23F0', label: 'Sesi\u00f3n', action: showSessionConfig, color: '#007AFF' },
+          { icon: '\uD83D\uDD12', label: 'C\u00f3digo', action: function() { if (window.DebtControlGuard) window.DebtControlGuard.changeCode(); else showToast('Guard no disponible'); }, color: '#FF3B30' },
+          { icon: '\uD83D\uDD10', label: 'Biometr\u00eda', action: showBiometricConfig, color: '#AF52DE' },
+          { icon: '\uD83D\uDCCB', label: 'Historial Sync', action: showSyncHistory, color: '#8E8E93' }
+        ]
       }
-    } else {
-      m.style.display = 'none';
+    ];
+
+    var activeCategory = 'quick';
+
+    var overlay = document.createElement('div');
+    overlay.id = 'dc-hub-overlay';
+    overlay.className = 'dc-hub-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.5)',
+      zIndex: '10000', display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      padding: '0', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    });
+
+    var card = document.createElement('div');
+    card.className = 'dc-hub-card';
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '24px 24px 0 0', width: '100%', maxWidth: '480px',
+      maxHeight: '85vh', display: 'flex', flexDirection: 'column',
+      boxShadow: '0 -8px 40px rgba(0,0,0,0.25)', color: t.txt, overflow: 'hidden'
+    });
+
+    function renderHub() {
+      var cat = categories.find(function(c) { return c.id === activeCategory; });
+
+      // Handle - barra superior para arrastrar
+      var headerHtml = '<div style="display:flex;justify-content:center;padding:10px 0 4px"><div style="width:40px;height:4px;border-radius:2px;background:' + t.border + '"></div></div>';
+
+      // Header con t\u00edtulo y botones
+      headerHtml += '<div style="padding:8px 20px 12px;display:flex;justify-content:space-between;align-items:center">'
+        + '<div style="font-size:20px;font-weight:700">DebtControl Pro</div>'
+        + '<div style="display:flex;gap:6px;align-items:center">'
+        + '<button class="dc-hub-install" style="background:' + t.inputBg + ';border:none;border-radius:10px;width:34px;height:34px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center" title="Instalar App">\uD83D\uDCF2</button>'
+        + '<button class="dc-hub-about" style="background:' + t.inputBg + ';border:none;border-radius:10px;width:34px;height:34px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center" title="Acerca de">\u2139\uFE0F</button>'
+        + '<button class="dc-hub-lock" style="background:' + t.inputBg + ';border:none;border-radius:10px;width:34px;height:34px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center" title="Bloquear">\uD83D\uDD12</button>'
+        + '<button class="dc-hub-close" style="background:' + t.inputBg + ';border:none;border-radius:10px;width:34px;height:34px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;color:' + t.txt + '" title="Cerrar">\u2715</button>'
+        + '</div></div>';
+
+      // Pesta\u00f1as de categor\u00edas
+      headerHtml += '<div style="padding:0 16px 14px;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">';
+      categories.forEach(function(c) {
+        var isActive = c.id === activeCategory;
+        headerHtml += '<button class="dc-hub-cat-btn" data-cat="' + c.id + '" style="'
+          + 'flex-shrink:0;padding:8px 14px;border-radius:20px;border:none;cursor:pointer;font-size:13px;font-weight:600;'
+          + 'white-space:nowrap;'
+          + (isActive
+            ? 'background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;box-shadow:0 2px 8px rgba(0,122,255,0.3);'
+            : 'background:' + t.inputBg + ';color:' + t.muted + ';')
+          + '">' + c.icon + ' ' + c.label + '</button>';
+      });
+      headerHtml += '</div>';
+
+      // Grid de tiles
+      var cols = cat.tiles.length <= 4 ? 'repeat(' + Math.min(cat.tiles.length, 4) + ',1fr)' : 'repeat(4,1fr)';
+      var tilesHtml = '<div style="padding:0 16px 20px;overflow-y:auto;flex:1">';
+      tilesHtml += '<div style="display:grid;grid-template-columns:' + cols + ';gap:10px">';
+      cat.tiles.forEach(function(tile, idx) {
+        tilesHtml += '<button class="dc-hub-tile" data-idx="' + idx + '" style="'
+          + 'display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 6px 12px;'
+          + 'border-radius:16px;border:none;cursor:pointer;'
+          + 'background:' + t.inputBg + ';color:' + t.txt + ';'
+          + '">'
+          + '<div style="width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:22px;'
+          + 'background:' + tile.color + '18;'
+          + '">' + tile.icon + '</div>'
+          + '<div style="font-size:11px;font-weight:600;text-align:center;line-height:1.25">' + tile.label + '</div>'
+          + '</button>';
+      });
+      tilesHtml += '</div></div>';
+
+      // Footer
+      var footerHtml = '<div style="padding:10px 16px 16px;border-top:1px solid ' + t.border + '">'
+        + '<button class="dc-hub-logout" style="width:100%;padding:11px;border-radius:12px;border:1px solid ' + t.border + ';background:transparent;color:' + t.muted + ';font-size:13px;font-weight:600;cursor:pointer">\uD83D\uDEAA Cerrar Sesi\u00f3n</button>'
+        + '</div>';
+
+      card.innerHTML = headerHtml + tilesHtml + footerHtml;
+
+      // Events
+      card.querySelector('.dc-hub-close').addEventListener('click', function() { overlay.remove(); });
+      card.querySelector('.dc-hub-install').addEventListener('click', function() { overlay.remove(); installApp(); });
+      card.querySelector('.dc-hub-about').addEventListener('click', function() { overlay.remove(); showAbout(); });
+      card.querySelector('.dc-hub-lock').addEventListener('click', function() {
+        overlay.remove();
+        if (window.DebtControlGuard) window.DebtControlGuard.lock();
+        else { localStorage.removeItem('debtcontrol_auth_session'); location.reload(); }
+      });
+      card.querySelector('.dc-hub-logout').addEventListener('click', function() {
+        overlay.remove();
+        if (window.DebtControlGuard) window.DebtControlGuard.logout();
+        else { localStorage.removeItem('debtcontrol_auth_session'); location.reload(); }
+      });
+
+      card.querySelectorAll('.dc-hub-cat-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          activeCategory = btn.getAttribute('data-cat');
+          renderHub();
+        });
+      });
+
+      card.querySelectorAll('.dc-hub-tile').forEach(function(el) {
+        el.addEventListener('click', function() {
+          var idx = parseInt(el.getAttribute('data-idx'));
+          if (navigator.vibrate) navigator.vibrate(10);
+          overlay.remove();
+          if (cat.tiles[idx] && cat.tiles[idx].action) cat.tiles[idx].action();
+        });
+      });
     }
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    renderHub();
+  }
+
+  function applyMenuTheme() {
+    // El hub se re-renderiza cada vez con colores actuales
   }
 
   // ============================================================

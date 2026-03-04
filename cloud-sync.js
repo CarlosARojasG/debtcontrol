@@ -603,6 +603,7 @@
       + '\u2022 Convenio de Pago (liquidaci\u00f3n / plan de pagos)<br>'
       + '\u2022 Sistema de Logros, XP y motivaci\u00f3n<br>'
       + '\u2022 Registro de deudas liquidadas (activas + hist\u00f3ricas)<br>'
+      + '\u2022 Historial agrupado por entidad, tipo y estado<br>'
       + '\u2022 Calendario y notificaciones<br>'
       + '\u2022 Seguridad: c\u00f3digo + biometr\u00eda<br>'
       + '\u2022 Accesos r\u00e1pidos de teclado (Ctrl+E/P/U/D/F/K)<br>'
@@ -1839,6 +1840,325 @@
 
     // Verificar logros al abrir (por si hay nuevos)
     await checkAndUnlockAchievements(false);
+  }
+
+  // ============================================================
+  // Historial Agrupado de Deudas y Pagos
+  // ============================================================
+  async function showDebtHistory() {
+    var data = await getAllLocalData();
+    var t = getThemeColors();
+    var currency = getCurrency();
+    var paidDebts = getPaidDebts();
+    var debts = data.debts || [];
+    var payments = data.payments || [];
+    var now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    // Construir lista unificada de deudas con estado
+    var allDebts = [];
+
+    // Deudas activas
+    debts.forEach(function(d) {
+      var amount = parseFloat(d.amount || d.totalAmount || d.monto || 0);
+      if (amount <= 0) return;
+      var dueStr = d.dueDate || d.fechaVencimiento || d.nextPaymentDate || null;
+      var isOverdue = false;
+      var daysLate = 0;
+      if (dueStr) {
+        var due = new Date(dueStr);
+        due.setHours(0, 0, 0, 0);
+        daysLate = Math.round((now - due) / (1000 * 60 * 60 * 24));
+        if (daysLate > 0) isOverdue = true;
+      }
+      // Pagos asociados
+      var debtPayments = payments.filter(function(p) {
+        return p.debtId === d.id || p.debtName === (d.name || d.nombre);
+      });
+      var totalPaid = debtPayments.reduce(function(s, p) { return s + parseFloat(p.amount || p.monto || 0); }, 0);
+      var pct = amount > 0 ? Math.min((totalPaid / amount) * 100, 100) : 0;
+
+      allDebts.push({
+        name: d.name || d.nombre || 'Deuda',
+        amount: amount,
+        category: d.category || d.categoria || '',
+        lender: d.lender || d.acreedor || d.bank || d.banco || d.institution || d.entidad || d.company || d.empresa || '',
+        status: isOverdue ? 'overdue' : 'active',
+        daysLate: daysLate,
+        dueDate: dueStr || null,
+        paidAmount: totalPaid,
+        paidPct: pct,
+        payments: debtPayments,
+        paidDate: null,
+        discount: 0,
+        historic: false,
+        note: ''
+      });
+    });
+
+    // Deudas liquidadas
+    paidDebts.forEach(function(d) {
+      allDebts.push({
+        name: d.name || 'Deuda',
+        amount: d.amount || 0,
+        category: d.category || '',
+        lender: d.lender || d.acreedor || d.bank || d.banco || d.institution || d.entidad || d.company || d.empresa || '',
+        status: 'paid',
+        daysLate: 0,
+        dueDate: null,
+        paidAmount: d.amount || 0,
+        paidPct: 100,
+        payments: [],
+        paidDate: d.paidDate || null,
+        discount: d.discount || 0,
+        originalAmount: d.originalAmount || 0,
+        historic: d.historic || false,
+        note: d.note || ''
+      });
+    });
+
+    // Determinar agrupaciones (entidad y tipo)
+    var byLender = {};
+    var byCategory = {};
+    allDebts.forEach(function(d) {
+      var lKey = d.lender || inferLender(d.name);
+      var cKey = d.category || inferCategory(d.name);
+      d._lender = lKey;
+      d._category = cKey;
+      if (!byLender[lKey]) byLender[lKey] = [];
+      byLender[lKey].push(d);
+      if (!byCategory[cKey]) byCategory[cKey] = [];
+      byCategory[cKey].push(d);
+    });
+
+    // Inferir entidad del nombre
+    function inferLender(name) {
+      if (!name) return 'Sin entidad';
+      var n = name.toLowerCase();
+      // Patrones comunes de bancos/entidades
+      var banks = ['bbva', 'banamex', 'banorte', 'santander', 'hsbc', 'scotiabank', 'azteca', 'inbursa', 'citibanamex', 'afirme', 'banbajio', 'banregio', 'hey banco', 'nu ', 'nubank', 'mercadopago', 'mercado pago', 'coppel', 'elektra', 'liverpool', 'palacio', 'costco', 'amex', 'american express'];
+      for (var i = 0; i < banks.length; i++) {
+        if (n.indexOf(banks[i]) !== -1) {
+          return banks[i].charAt(0).toUpperCase() + banks[i].slice(1);
+        }
+      }
+      // Si tiene palabras como "banco", "tarjeta de", separar
+      var match = n.match(/(?:banco|bank|tarjeta|credito|pr[eé]stamo)\s+(?:de\s+)?(\w+)/i);
+      if (match) return match[1].charAt(0).toUpperCase() + match[1].slice(1);
+      return 'Sin entidad';
+    }
+
+    function inferCategory(name) {
+      if (!name) return 'Sin categor\u00eda';
+      var n = name.toLowerCase();
+      if (n.indexOf('tarjeta') !== -1 || n.indexOf('tdc') !== -1 || n.indexOf('credit card') !== -1) return 'Tarjeta de Cr\u00e9dito';
+      if (n.indexOf('hipoteca') !== -1 || n.indexOf('casa') !== -1 || n.indexOf('vivienda') !== -1 || n.indexOf('mortgage') !== -1) return 'Hipotecario';
+      if (n.indexOf('auto') !== -1 || n.indexOf('carro') !== -1 || n.indexOf('vehic') !== -1 || n.indexOf('car loan') !== -1) return 'Automotriz';
+      if (n.indexOf('personal') !== -1 || n.indexOf('pr\u00e9stamo') !== -1 || n.indexOf('prestamo') !== -1) return 'Pr\u00e9stamo Personal';
+      if (n.indexOf('escolar') !== -1 || n.indexOf('estudi') !== -1 || n.indexOf('educaci') !== -1 || n.indexOf('universidad') !== -1) return 'Educativo';
+      if (n.indexOf('m\u00e9dico') !== -1 || n.indexOf('medico') !== -1 || n.indexOf('hospital') !== -1 || n.indexOf('salud') !== -1) return 'M\u00e9dico';
+      return 'Sin categor\u00eda';
+    }
+
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '480px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    if (allDebts.length === 0) {
+      card.innerHTML = '<div style="text-align:center;padding:20px">'
+        + '<div style="font-size:48px;margin-bottom:12px">\uD83D\uDCCB</div>'
+        + '<h2 style="margin:0 0 8px 0;font-size:18px">Historial de Deudas</h2>'
+        + '<p style="color:' + t.muted + ';font-size:14px">No hay deudas registradas a\u00fan.</p>'
+        + '<button class="dc-dh-close0" style="padding:12px 24px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:14px;cursor:pointer;margin-top:12px">Cerrar</button></div>';
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      card.querySelector('.dc-dh-close0').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      return;
+    }
+
+    // Estadísticas
+    var countActive = allDebts.filter(function(d) { return d.status === 'active'; }).length;
+    var countOverdue = allDebts.filter(function(d) { return d.status === 'overdue'; }).length;
+    var countPaid = allDebts.filter(function(d) { return d.status === 'paid'; }).length;
+    var totalActive = allDebts.filter(function(d) { return d.status !== 'paid'; }).reduce(function(s, d) { return s + d.amount; }, 0);
+    var totalPaidAmt = allDebts.filter(function(d) { return d.status === 'paid'; }).reduce(function(s, d) { return s + d.amount; }, 0);
+
+    var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:18px">\uD83D\uDCCB Historial de Deudas</h2>'
+      + '<button class="dc-dh-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button></div>';
+
+    // Tabs
+    html += '<div class="dc-dh-tabs" style="display:flex;gap:6px;margin-bottom:14px">'
+      + '<button class="dc-dh-tab" data-tab="lender" style="flex:1;padding:8px;border:1px solid #007AFF;border-radius:10px;background:#007AFF;color:#fff;font-size:12px;font-weight:600;cursor:pointer">\uD83C\uDFE6 Por Entidad</button>'
+      + '<button class="dc-dh-tab" data-tab="category" style="flex:1;padding:8px;border:1px solid ' + t.border + ';border-radius:10px;background:transparent;color:' + t.txt + ';font-size:12px;font-weight:600;cursor:pointer">\uD83D\uDCC1 Por Tipo</button>'
+      + '<button class="dc-dh-tab" data-tab="status" style="flex:1;padding:8px;border:1px solid ' + t.border + ';border-radius:10px;background:transparent;color:' + t.txt + ';font-size:12px;font-weight:600;cursor:pointer">\uD83D\uDEA6 Por Estado</button></div>';
+
+    // Stats bar
+    html += '<div style="display:flex;gap:6px;margin-bottom:14px">'
+      + '<div style="flex:1;background:' + t.inputBg + ';border-radius:10px;padding:8px;text-align:center">'
+      + '<div style="font-size:18px;font-weight:800;color:#FF9500">' + countActive + '</div>'
+      + '<div style="font-size:10px;color:' + t.muted + '">Vigente' + (countActive !== 1 ? 's' : '') + '</div></div>'
+      + '<div style="flex:1;background:' + t.inputBg + ';border-radius:10px;padding:8px;text-align:center">'
+      + '<div style="font-size:18px;font-weight:800;color:#FF3B30">' + countOverdue + '</div>'
+      + '<div style="font-size:10px;color:' + t.muted + '">En mora</div></div>'
+      + '<div style="flex:1;background:' + t.inputBg + ';border-radius:10px;padding:8px;text-align:center">'
+      + '<div style="font-size:18px;font-weight:800;color:#34C759">' + countPaid + '</div>'
+      + '<div style="font-size:10px;color:' + t.muted + '">Liquidada' + (countPaid !== 1 ? 's' : '') + '</div></div></div>';
+
+    // Container dinámico
+    html += '<div class="dc-dh-content"></div>';
+
+    html += '<button class="dc-dh-close2" style="width:100%;padding:12px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:14px;cursor:pointer;margin-top:12px">Cerrar</button>';
+
+    card.innerHTML = html;
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    var contentDiv = card.querySelector('.dc-dh-content');
+
+    function statusBadge(status, daysLate) {
+      if (status === 'overdue') return '<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;background:#FF3B3020;color:#FF3B30;border:1px solid #FF3B3040">\uD83D\uDD34 Mora' + (daysLate > 0 ? ' (' + daysLate + 'd)' : '') + '</span>';
+      if (status === 'paid') return '<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;background:#34C75920;color:#34C759;border:1px solid #34C75940">\uD83D\uDFE2 Liquidada</span>';
+      return '<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;background:#FF950020;color:#FF9500;border:1px solid #FF950040">\uD83D\uDFE1 Vigente</span>';
+    }
+
+    function renderDebtCard(d) {
+      var card = '<div style="background:' + t.inputBg + ';border-radius:10px;padding:10px 12px;margin-bottom:6px;border-left:3px solid '
+        + (d.status === 'overdue' ? '#FF3B30' : d.status === 'paid' ? '#34C759' : '#FF9500') + '">'
+        + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">'
+        + '<div style="flex:1">'
+        + '<div style="font-size:13px;font-weight:600">' + (d.historic ? '\uD83D\uDCDC ' : '') + escapeHtml(d.name) + '</div>'
+        + '<div style="font-size:11px;color:' + t.muted + ';margin-top:2px">'
+        + (d._category !== 'Sin categor\u00eda' ? d._category + ' \u2022 ' : '')
+        + (d._lender !== 'Sin entidad' ? d._lender : '') + '</div></div>'
+        + '<div style="text-align:right">'
+        + '<div style="font-size:14px;font-weight:700;' + (d.status === 'paid' ? 'color:#34C759' : '') + '">' + currency + formatNumber(d.amount) + '</div>'
+        + statusBadge(d.status, d.daysLate) + '</div></div>';
+
+      // Barra de progreso para activas
+      if (d.status !== 'paid' && d.paidPct > 0) {
+        card += '<div style="background:' + t.border + ';border-radius:4px;height:5px;overflow:hidden;margin:4px 0">'
+          + '<div style="width:' + d.paidPct + '%;height:100%;background:#34C759;border-radius:4px"></div></div>'
+          + '<div style="font-size:10px;color:' + t.muted + '">Pagado: ' + currency + formatNumber(d.paidAmount) + ' (' + d.paidPct.toFixed(0) + '%)</div>';
+      }
+
+      // Info adicional
+      var details = [];
+      if (d.dueDate) details.push('Vence: ' + new Date(d.dueDate + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }));
+      if (d.paidDate) details.push('Liquidada: ' + new Date(d.paidDate + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }));
+      if (d.discount > 0) details.push('\u2702\uFE0F Descuento: ' + currency + formatNumber(d.discount));
+      if (d.historic) details.push('\uD83D\uDCDC Pagada antes de la app');
+      if (d.note) details.push(d.note);
+      if (details.length > 0) {
+        card += '<div style="font-size:10px;color:' + t.muted + ';margin-top:4px">' + details.join(' \u2022 ') + '</div>';
+      }
+
+      card += '</div>';
+      return card;
+    }
+
+    function renderGrouped(groups, labelKey) {
+      var sorted = Object.keys(groups).sort(function(a, b) {
+        // Entidades con mora primero, luego activas, luego liquidadas
+        var aHasOverdue = groups[a].some(function(d) { return d.status === 'overdue'; });
+        var bHasOverdue = groups[b].some(function(d) { return d.status === 'overdue'; });
+        if (aHasOverdue !== bHasOverdue) return aHasOverdue ? -1 : 1;
+        var aHasActive = groups[a].some(function(d) { return d.status === 'active'; });
+        var bHasActive = groups[b].some(function(d) { return d.status === 'active'; });
+        if (aHasActive !== bHasActive) return aHasActive ? -1 : 1;
+        return groups[b].length - groups[a].length;
+      });
+      var h = '';
+      sorted.forEach(function(key) {
+        var items = groups[key];
+        var totalGrp = items.reduce(function(s, d) { return s + d.amount; }, 0);
+        var grpOverdue = items.filter(function(d) { return d.status === 'overdue'; }).length;
+        var grpActive = items.filter(function(d) { return d.status === 'active'; }).length;
+        var grpPaid = items.filter(function(d) { return d.status === 'paid'; }).length;
+        var grpColor = grpOverdue > 0 ? '#FF3B30' : grpActive > 0 ? '#FF9500' : '#34C759';
+
+        h += '<div style="margin-bottom:14px">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:8px 10px;background:' + grpColor + '12;border:1px solid ' + grpColor + '30;border-radius:10px">'
+          + '<div><div style="font-size:14px;font-weight:700">' + escapeHtml(key) + '</div>'
+          + '<div style="font-size:10px;color:' + t.muted + '">'
+          + items.length + ' deuda' + (items.length !== 1 ? 's' : '')
+          + (grpOverdue > 0 ? ' \u2022 <span style="color:#FF3B30">' + grpOverdue + ' en mora</span>' : '')
+          + (grpActive > 0 ? ' \u2022 <span style="color:#FF9500">' + grpActive + ' vigente' + (grpActive !== 1 ? 's' : '') + '</span>' : '')
+          + (grpPaid > 0 ? ' \u2022 <span style="color:#34C759">' + grpPaid + ' liquidada' + (grpPaid !== 1 ? 's' : '') + '</span>' : '')
+          + '</div></div>'
+          + '<div style="font-size:15px;font-weight:700">' + currency + formatNumber(totalGrp) + '</div></div>';
+
+        // Ordenar deudas: mora > activa > liquidada, luego por monto
+        items.sort(function(a, b) {
+          var order = { overdue: 0, active: 1, paid: 2 };
+          if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+          return b.amount - a.amount;
+        });
+        items.forEach(function(d) { h += renderDebtCard(d); });
+        h += '</div>';
+      });
+      return h;
+    }
+
+    function renderByStatus() {
+      var groups = { 'Mora': [], 'Vigente': [], 'Liquidada': [] };
+      allDebts.forEach(function(d) {
+        if (d.status === 'overdue') groups['Mora'].push(d);
+        else if (d.status === 'active') groups['Vigente'].push(d);
+        else groups['Liquidada'].push(d);
+      });
+      var h = '';
+      ['Mora', 'Vigente', 'Liquidada'].forEach(function(key) {
+        var items = groups[key];
+        if (items.length === 0) return;
+        var grpColor = key === 'Mora' ? '#FF3B30' : key === 'Vigente' ? '#FF9500' : '#34C759';
+        var icon = key === 'Mora' ? '\uD83D\uDD34' : key === 'Vigente' ? '\uD83D\uDFE1' : '\uD83D\uDFE2';
+        var totalGrp = items.reduce(function(s, d) { return s + d.amount; }, 0);
+
+        h += '<div style="margin-bottom:14px">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:8px 10px;background:' + grpColor + '12;border:1px solid ' + grpColor + '30;border-radius:10px">'
+          + '<div><div style="font-size:14px;font-weight:700">' + icon + ' ' + key + '</div>'
+          + '<div style="font-size:10px;color:' + t.muted + '">' + items.length + ' deuda' + (items.length !== 1 ? 's' : '') + '</div></div>'
+          + '<div style="font-size:15px;font-weight:700">' + currency + formatNumber(totalGrp) + '</div></div>';
+
+        items.sort(function(a, b) { return b.amount - a.amount; });
+        items.forEach(function(d) { h += renderDebtCard(d); });
+        h += '</div>';
+      });
+      return h;
+    }
+
+    // Render tab
+    function showTab(tab) {
+      if (tab === 'lender') contentDiv.innerHTML = renderGrouped(byLender);
+      else if (tab === 'category') contentDiv.innerHTML = renderGrouped(byCategory);
+      else contentDiv.innerHTML = renderByStatus();
+
+      // Update tab styles
+      card.querySelectorAll('.dc-dh-tab').forEach(function(btn) {
+        var isActive = btn.getAttribute('data-tab') === tab;
+        btn.style.background = isActive ? '#007AFF' : 'transparent';
+        btn.style.color = isActive ? '#fff' : t.txt;
+        btn.style.borderColor = isActive ? '#007AFF' : t.border;
+      });
+    }
+
+    // Event listeners
+    card.querySelector('.dc-dh-close').addEventListener('click', function() { overlay.remove(); });
+    card.querySelector('.dc-dh-close2').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    card.querySelectorAll('.dc-dh-tab').forEach(function(btn) {
+      btn.addEventListener('click', function() { showTab(btn.getAttribute('data-tab')); });
+    });
+
+    // Iniciar con vista por entidad
+    showTab('lender');
   }
 
   // ============================================================
@@ -3503,6 +3823,7 @@
       { header: '\uD83C\uDFC6 Progreso' },
       { icon: '\uD83C\uDFC6', label: 'Mis Logros y XP', action: showAchievementsScreen },
       { icon: '\u2705', label: 'Registrar Deuda Liquidada', action: showMarkDebtPaid },
+      { icon: '\uD83D\uDCCB', label: 'Historial de Deudas', action: showDebtHistory },
       { sep: true },
       { header: '\u2699\uFE0F Ajustes' },
       { icon: '\u2699\uFE0F', label: 'Configurar Firebase', action: showFirebaseSetup },

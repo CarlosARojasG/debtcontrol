@@ -598,6 +598,7 @@
       + '\u2022 Ratio Deuda/Ingreso (DTI)<br>'
       + '\u2022 Fecha Libre de Deudas + Comparador de Pr\u00e9stamos<br>'
       + '\u2022 Desglose por Categor\u00eda<br>'
+      + '\u2022 Convenio de Pago (liquidaci\u00f3n / plan de pagos)<br>'
       + '\u2022 Calendario y notificaciones<br>'
       + '\u2022 Seguridad: c\u00f3digo + biometr\u00eda<br>'
       + '\u2022 Accesos r\u00e1pidos de teclado (Ctrl+E/P/U/D/F/K)<br>'
@@ -1049,6 +1050,327 @@
     card.querySelector('.dc-cat-close').addEventListener('click', function() { overlay.remove(); });
     card.querySelector('.dc-cat-close2').addEventListener('click', function() { overlay.remove(); });
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  }
+
+  // ============================================================
+  // Convenio de Pago
+  // ============================================================
+  async function showPaymentAgreement() {
+    var data = await getAllLocalData();
+    var t = getThemeColors();
+    var currency = getCurrency();
+    var debts = (data.debts || []).filter(function(d) {
+      return parseFloat(d.amount || d.totalAmount || d.monto || 0) > 0;
+    });
+
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '460px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    var iSt = 'width:100%;padding:10px;border-radius:8px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:13px;box-sizing:border-box;margin-top:4px;outline:none;';
+    var selSt = iSt + 'appearance:auto;';
+
+    // Generar opciones del select de deudas
+    var debtOptions = '<option value="">-- Selecciona una deuda --</option>';
+    debts.forEach(function(d, idx) {
+      var name = escapeAttr(d.name || d.nombre || 'Deuda ' + (idx + 1));
+      var amt = parseFloat(d.amount || d.totalAmount || d.monto || 0);
+      debtOptions += '<option value="' + idx + '">' + name + ' (' + currency + formatNumber(amt) + ')</option>';
+    });
+    debtOptions += '<option value="manual">Ingresar manualmente</option>';
+
+    card.innerHTML = ''
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:18px">\uD83E\uDD1D Convenio de Pago</h2>'
+      + '<button class="dc-pa-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button></div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:10px;padding:10px;margin-bottom:14px;font-size:12px;color:' + t.muted + ';line-height:1.5">'
+      + '\uD83D\uDCA1 Simula un convenio de pago para deudas vencidas: liquidaci\u00f3n en un solo pago o plan de pagos a plazos.</div>'
+
+      // Selección de deuda
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Deuda</label>'
+      + '<select class="dc-pa-debt-select" style="' + selSt + '">' + debtOptions + '</select>'
+
+      // Campos manuales (ocultos por defecto)
+      + '<div class="dc-pa-manual" style="display:none;margin-top:8px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Nombre de la deuda</label>'
+      + '<input class="dc-pa-manual-name" type="text" placeholder="Ej: Tarjeta VISA" style="' + iSt + '">'
+      + '</div>'
+
+      // Monto original adeudado
+      + '<div style="margin-top:10px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Monto original adeudado (' + currency + ')</label>'
+      + '<input class="dc-pa-original" type="number" placeholder="Ej: 50000" style="' + iSt + '"></div>'
+
+      // Monto acordado
+      + '<div style="margin-top:10px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Monto acordado en convenio (' + currency + ')</label>'
+      + '<input class="dc-pa-agreed" type="number" placeholder="Ej: 35000" style="' + iSt + '"></div>'
+
+      // Tipo de convenio
+      + '<div style="margin-top:10px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Tipo de convenio</label>'
+      + '<select class="dc-pa-type" style="' + selSt + '">'
+      + '<option value="lump">Liquidar en un solo pago</option>'
+      + '<option value="installments">Plan de pagos (parcialidades)</option>'
+      + '</select></div>'
+
+      // Campos para plan de pagos
+      + '<div class="dc-pa-installment-fields" style="display:none;margin-top:10px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">N\u00famero de pagos</label>'
+      + '<input class="dc-pa-num-payments" type="number" placeholder="Ej: 6" min="2" style="' + iSt + '">'
+      + '<div style="margin-top:8px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Frecuencia de pago</label>'
+      + '<select class="dc-pa-frequency" style="' + selSt + '">'
+      + '<option value="weekly">Semanal</option>'
+      + '<option value="biweekly">Quincenal</option>'
+      + '<option value="monthly" selected>Mensual</option>'
+      + '</select></div>'
+      + '<div style="margin-top:8px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Inter\u00e9s del convenio (% anual, 0 si no aplica)</label>'
+      + '<input class="dc-pa-interest" type="number" value="0" min="0" step="0.1" style="' + iSt + '"></div>'
+      + '</div>'
+
+      // Fecha inicio
+      + '<div style="margin-top:10px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Fecha de inicio del convenio</label>'
+      + '<input class="dc-pa-start-date" type="date" value="' + new Date().toISOString().split('T')[0] + '" style="' + iSt + '"></div>'
+
+      // Botón calcular
+      + '<button class="dc-pa-calc" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#FF9500,#FF3B30);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:16px">\uD83E\uDD1D Generar Convenio</button>'
+      + '<div class="dc-pa-result" style="margin-top:16px"></div>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    card.querySelector('.dc-pa-close').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    // Toggle campos manuales
+    var debtSelect = card.querySelector('.dc-pa-debt-select');
+    var manualDiv = card.querySelector('.dc-pa-manual');
+    var originalInput = card.querySelector('.dc-pa-original');
+    debtSelect.addEventListener('change', function() {
+      if (debtSelect.value === 'manual') {
+        manualDiv.style.display = 'block';
+        originalInput.value = '';
+      } else if (debtSelect.value !== '') {
+        manualDiv.style.display = 'none';
+        var d = debts[parseInt(debtSelect.value)];
+        originalInput.value = parseFloat(d.amount || d.totalAmount || d.monto || 0).toFixed(2);
+      } else {
+        manualDiv.style.display = 'none';
+        originalInput.value = '';
+      }
+    });
+
+    // Toggle campos de plan de pagos
+    var typeSelect = card.querySelector('.dc-pa-type');
+    var installFields = card.querySelector('.dc-pa-installment-fields');
+    typeSelect.addEventListener('change', function() {
+      installFields.style.display = typeSelect.value === 'installments' ? 'block' : 'none';
+    });
+
+    // Calcular
+    card.querySelector('.dc-pa-calc').addEventListener('click', function() {
+      var originalAmt = parseFloat(originalInput.value) || 0;
+      var agreedAmt = parseFloat(card.querySelector('.dc-pa-agreed').value) || 0;
+      var startDateStr = card.querySelector('.dc-pa-start-date').value;
+      var agreementType = typeSelect.value;
+
+      if (originalAmt <= 0) { showToast('\u26A0\uFE0F Ingresa el monto original adeudado'); return; }
+      if (agreedAmt <= 0) { showToast('\u26A0\uFE0F Ingresa el monto acordado en el convenio'); return; }
+      if (agreedAmt > originalAmt) { showToast('\u26A0\uFE0F El monto acordado no puede ser mayor al original'); return; }
+      if (!startDateStr) { showToast('\u26A0\uFE0F Selecciona la fecha de inicio'); return; }
+
+      var discount = originalAmt - agreedAmt;
+      var discountPct = (discount / originalAmt) * 100;
+
+      // Nombre de la deuda
+      var debtName;
+      if (debtSelect.value === 'manual') {
+        debtName = card.querySelector('.dc-pa-manual-name').value || 'Deuda';
+      } else if (debtSelect.value !== '') {
+        var selDebt = debts[parseInt(debtSelect.value)];
+        debtName = selDebt.name || selDebt.nombre || 'Deuda';
+      } else {
+        debtName = 'Deuda';
+      }
+
+      var startDate = new Date(startDateStr + 'T00:00:00');
+
+      var html = '<div style="background:' + t.inputBg + ';border-radius:14px;padding:16px;margin-bottom:12px">'
+        + '<div style="text-align:center;margin-bottom:12px">'
+        + '<div style="font-size:36px;margin-bottom:4px">\uD83E\uDD1D</div>'
+        + '<div style="font-size:16px;font-weight:700">Convenio de Pago</div>'
+        + '<div style="font-size:13px;color:' + t.muted + '">' + escapeHtml(debtName) + '</div></div>'
+
+        // Resumen del convenio
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">'
+        + '<div style="background:' + t.bg + ';border-radius:10px;padding:10px;text-align:center">'
+        + '<div style="font-size:11px;color:' + t.muted + '">Monto Original</div>'
+        + '<div style="font-size:16px;font-weight:700;color:#FF3B30;text-decoration:line-through">' + currency + formatNumber(originalAmt) + '</div></div>'
+        + '<div style="background:' + t.bg + ';border-radius:10px;padding:10px;text-align:center">'
+        + '<div style="font-size:11px;color:' + t.muted + '">Monto Acordado</div>'
+        + '<div style="font-size:16px;font-weight:700;color:#34C759">' + currency + formatNumber(agreedAmt) + '</div></div></div>'
+
+        + '<div style="background:linear-gradient(135deg,#34C75920,#34C75910);border:1px solid #34C75940;border-radius:10px;padding:10px;text-align:center;margin-bottom:12px">'
+        + '<div style="font-size:11px;color:' + t.muted + '">Descuento Obtenido</div>'
+        + '<div style="font-size:20px;font-weight:700;color:#34C759">' + currency + formatNumber(discount) + ' <span style="font-size:14px">(' + discountPct.toFixed(1) + '%)</span></div></div>';
+
+      if (agreementType === 'lump') {
+        // ── Pago único ──
+        html += '<div style="background:' + t.bg + ';border-radius:10px;padding:14px;text-align:center;border:2px solid #007AFF40">'
+          + '<div style="font-size:13px;font-weight:600;color:#007AFF;margin-bottom:6px">\uD83D\uDCB5 Liquidaci\u00f3n en un Solo Pago</div>'
+          + '<div style="font-size:11px;color:' + t.muted + '">Monto a pagar</div>'
+          + '<div style="font-size:24px;font-weight:700;margin:4px 0">' + currency + formatNumber(agreedAmt) + '</div>'
+          + '<div style="font-size:12px;color:' + t.muted + '">Fecha l\u00edmite: <b>' + startDate.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) + '</b></div>'
+          + '</div>';
+
+        html += '<div style="margin-top:12px;background:' + t.bg + ';border-radius:10px;padding:12px;font-size:12px;color:' + t.muted + ';line-height:1.6">'
+          + '<div style="font-weight:600;margin-bottom:4px">\u2705 Ventajas de liquidar en un solo pago:</div>'
+          + '\u2022 Te liberas de la deuda inmediatamente<br>'
+          + '\u2022 Ahorro de ' + currency + formatNumber(discount) + ' (' + discountPct.toFixed(1) + '% de descuento)<br>'
+          + '\u2022 No generas intereses adicionales<br>'
+          + '\u2022 Mejoras tu historial crediticio m\u00e1s r\u00e1pido</div>';
+
+      } else {
+        // ── Plan de pagos ──
+        var numPayments = parseInt(card.querySelector('.dc-pa-num-payments').value) || 0;
+        var frequency = card.querySelector('.dc-pa-frequency').value;
+        var annualRate = parseFloat(card.querySelector('.dc-pa-interest').value) || 0;
+
+        if (numPayments < 2) { showToast('\u26A0\uFE0F Ingresa al menos 2 pagos para el plan'); return; }
+
+        // Calcular cuota
+        var totalWithInterest = agreedAmt;
+        var monthlyPayment;
+        var totalInterest = 0;
+
+        if (annualRate > 0) {
+          // Calcular tasa por período según frecuencia
+          var periodsPerYear = frequency === 'weekly' ? 52 : (frequency === 'biweekly' ? 26 : 12);
+          var periodRate = annualRate / 100 / periodsPerYear;
+          monthlyPayment = agreedAmt * (periodRate * Math.pow(1 + periodRate, numPayments)) / (Math.pow(1 + periodRate, numPayments) - 1);
+          totalWithInterest = monthlyPayment * numPayments;
+          totalInterest = totalWithInterest - agreedAmt;
+        } else {
+          monthlyPayment = agreedAmt / numPayments;
+        }
+
+        var freqLabel = frequency === 'weekly' ? 'Semanal' : (frequency === 'biweekly' ? 'Quincenal' : 'Mensual');
+        var freqDays = frequency === 'weekly' ? 7 : (frequency === 'biweekly' ? 14 : 30);
+
+        html += '<div style="background:' + t.bg + ';border-radius:10px;padding:14px;border:2px solid #5856D640;margin-bottom:12px">'
+          + '<div style="font-size:13px;font-weight:600;color:#5856D6;text-align:center;margin-bottom:10px">\uD83D\uDCC5 Plan de Pagos (' + freqLabel + ')</div>'
+          + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center">'
+          + '<div><div style="font-size:11px;color:' + t.muted + '">Cuota</div><div style="font-size:15px;font-weight:700">' + currency + formatNumber(monthlyPayment) + '</div></div>'
+          + '<div><div style="font-size:11px;color:' + t.muted + '">Pagos</div><div style="font-size:15px;font-weight:700">' + numPayments + '</div></div>'
+          + '<div><div style="font-size:11px;color:' + t.muted + '">Total</div><div style="font-size:15px;font-weight:700">' + currency + formatNumber(totalWithInterest) + '</div></div></div>';
+
+        if (totalInterest > 0) {
+          html += '<div style="margin-top:8px;text-align:center;font-size:12px;color:#FF9500">'
+            + '\u26A0\uFE0F Intereses del convenio: ' + currency + formatNumber(totalInterest) + ' (' + annualRate + '% anual)</div>';
+        }
+        html += '</div>';
+
+        // Tabla de pagos
+        html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">\uD83D\uDCC6 Calendario de Pagos</div>';
+        html += '<div style="max-height:240px;overflow-y:auto;border:1px solid ' + t.border + ';border-radius:10px">';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+        html += '<thead><tr style="background:' + t.inputBg + ';position:sticky;top:0">'
+          + '<th style="padding:8px 6px;text-align:center;border-bottom:1px solid ' + t.border + '">#</th>'
+          + '<th style="padding:8px 6px;text-align:left;border-bottom:1px solid ' + t.border + '">Fecha</th>'
+          + '<th style="padding:8px 6px;text-align:right;border-bottom:1px solid ' + t.border + '">Monto</th>'
+          + '<th style="padding:8px 6px;text-align:right;border-bottom:1px solid ' + t.border + '">Saldo</th>'
+          + '</tr></thead><tbody>';
+
+        var balance = totalWithInterest;
+        var payDate = new Date(startDate.getTime());
+        var tableText = 'No.\tFecha\tMonto\tSaldo\n';
+
+        for (var p = 1; p <= numPayments; p++) {
+          var thisPayment = p < numPayments ? monthlyPayment : balance;
+          balance = Math.max(0, balance - thisPayment);
+          var dateStr = payDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+          var isPast = payDate < new Date();
+          var rowBg = isPast ? (t.isDark ? '#FF3B3015' : '#FF3B3010') : 'transparent';
+
+          html += '<tr style="background:' + rowBg + '">'
+            + '<td style="padding:6px;text-align:center;border-bottom:1px solid ' + t.border + ';color:' + t.muted + '">' + p + '</td>'
+            + '<td style="padding:6px;text-align:left;border-bottom:1px solid ' + t.border + ';font-size:11px' + (isPast ? ';color:#FF3B30;font-weight:600' : '') + '">' + dateStr + (isPast ? ' \u26A0\uFE0F' : '') + '</td>'
+            + '<td style="padding:6px;text-align:right;border-bottom:1px solid ' + t.border + ';font-weight:600">' + currency + formatNumber(thisPayment) + '</td>'
+            + '<td style="padding:6px;text-align:right;border-bottom:1px solid ' + t.border + ';color:' + (balance <= 0 ? '#34C759' : t.muted) + '">' + currency + formatNumber(balance) + '</td></tr>';
+
+          tableText += p + '\t' + dateStr + '\t' + currency + formatNumber(thisPayment) + '\t' + currency + formatNumber(balance) + '\n';
+
+          // Avanzar fecha según frecuencia
+          if (frequency === 'weekly') {
+            payDate.setDate(payDate.getDate() + 7);
+          } else if (frequency === 'biweekly') {
+            payDate.setDate(payDate.getDate() + 14);
+          } else {
+            payDate.setMonth(payDate.getMonth() + 1);
+          }
+        }
+
+        html += '</tbody></table></div>';
+
+        // Fecha de término
+        var endDate = new Date(payDate.getTime());
+        if (frequency === 'weekly') endDate.setDate(endDate.getDate() - 7);
+        else if (frequency === 'biweekly') endDate.setDate(endDate.getDate() - 14);
+        else endDate.setMonth(endDate.getMonth() - 1);
+
+        html += '<div style="margin-top:10px;background:' + t.bg + ';border-radius:10px;padding:10px;text-align:center;font-size:12px;color:' + t.muted + '">'
+          + '\uD83C\uDFC1 Terminas de pagar: <b style="color:' + t.txt + '">' + endDate.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) + '</b></div>';
+
+        // Ahorro real vs original
+        var realSaving = originalAmt - totalWithInterest;
+        if (realSaving > 0) {
+          html += '<div style="margin-top:8px;background:linear-gradient(135deg,#34C75920,#34C75910);border:1px solid #34C75940;border-radius:10px;padding:10px;text-align:center">'
+            + '<div style="font-size:11px;color:' + t.muted + '">Ahorro real vs deuda original (despu\u00e9s de intereses)</div>'
+            + '<div style="font-size:18px;font-weight:700;color:#34C759">' + currency + formatNumber(realSaving) + ' (' + (realSaving / originalAmt * 100).toFixed(1) + '%)</div></div>';
+        } else if (realSaving < 0) {
+          html += '<div style="margin-top:8px;background:linear-gradient(135deg,#FF3B3020,#FF3B3010);border:1px solid #FF3B3040;border-radius:10px;padding:10px;text-align:center">'
+            + '<div style="font-size:11px;color:' + t.muted + '">\u26A0\uFE0F Con intereses pagar\u00e1s m\u00e1s que la deuda original</div>'
+            + '<div style="font-size:18px;font-weight:700;color:#FF3B30">+' + currency + formatNumber(Math.abs(realSaving)) + '</div></div>';
+        }
+
+        // Botón copiar tabla
+        html += '<button class="dc-pa-copy" style="width:100%;padding:10px;border:1px solid ' + t.border + ';border-radius:10px;background:transparent;color:' + t.txt + ';font-size:13px;cursor:pointer;margin-top:10px">\uD83D\uDCCB Copiar Tabla al Portapapeles</button>';
+
+        // Guardar referencia al texto de la tabla
+        card.setAttribute('data-table-text', tableText);
+      }
+
+      html += '</div>'; // cierre del contenedor principal
+
+      card.querySelector('.dc-pa-result').innerHTML = html;
+
+      // Bind copiar si existe
+      var copyBtn = card.querySelector('.dc-pa-copy');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', function() {
+          var txt = card.getAttribute('data-table-text') || '';
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt).then(function() {
+              showToast('\u2705 Tabla copiada al portapapeles');
+            });
+          } else {
+            var ta = document.createElement('textarea');
+            ta.value = txt;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+            showToast('\u2705 Tabla copiada al portapapeles');
+          }
+        });
+      }
+    });
   }
 
   // ============================================================
@@ -2708,6 +3030,7 @@
       { icon: '\uD83C\uDFC1', label: 'Fecha Libre de Deudas', action: showDebtFreeDate },
       { icon: '\uD83D\uDD0D', label: 'Comparar Pr\u00e9stamos', action: showLoanComparator },
       { icon: '\uD83D\uDCCA', label: 'Desglose por Categor\u00eda', action: showCategoryBreakdown },
+      { icon: '\uD83E\uDD1D', label: 'Convenio de Pago', action: showPaymentAgreement },
       { sep: true },
       { header: '\u2699\uFE0F Ajustes' },
       { icon: '\u2699\uFE0F', label: 'Configurar Firebase', action: showFirebaseSetup },

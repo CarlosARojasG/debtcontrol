@@ -1059,9 +1059,32 @@
     var data = await getAllLocalData();
     var t = getThemeColors();
     var currency = getCurrency();
+    var now = new Date();
+    now.setHours(0, 0, 0, 0);
+
     var debts = (data.debts || []).filter(function(d) {
       return parseFloat(d.amount || d.totalAmount || d.monto || 0) > 0;
     });
+
+    // Clasificar deudas: vencidas vs al corriente
+    var overdueDebts = [];
+    var currentDebts = [];
+    debts.forEach(function(d, idx) {
+      var dueStr = d.dueDate || d.fechaVencimiento || d.nextPaymentDate || null;
+      var isOverdue = false;
+      var daysLate = 0;
+      if (dueStr) {
+        var due = new Date(dueStr);
+        due.setHours(0, 0, 0, 0);
+        daysLate = Math.round((now - due) / (1000 * 60 * 60 * 24));
+        if (daysLate > 0) isOverdue = true;
+      }
+      var entry = { debt: d, idx: idx, isOverdue: isOverdue, daysLate: daysLate, dueStr: dueStr };
+      if (isOverdue) overdueDebts.push(entry);
+      else currentDebts.push(entry);
+    });
+    // Ordenar vencidas por más días de retraso
+    overdueDebts.sort(function(a, b) { return b.daysLate - a.daysLate; });
 
     var overlay = createModalOverlay();
     var card = document.createElement('div');
@@ -1074,14 +1097,54 @@
     var iSt = 'width:100%;padding:10px;border-radius:8px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:13px;box-sizing:border-box;margin-top:4px;outline:none;';
     var selSt = iSt + 'appearance:auto;';
 
-    // Generar opciones del select de deudas
+    // Generar opciones del select — vencidas primero con indicador
     var debtOptions = '<option value="">-- Selecciona una deuda --</option>';
-    debts.forEach(function(d, idx) {
-      var name = escapeAttr(d.name || d.nombre || 'Deuda ' + (idx + 1));
-      var amt = parseFloat(d.amount || d.totalAmount || d.monto || 0);
-      debtOptions += '<option value="' + idx + '">' + name + ' (' + currency + formatNumber(amt) + ')</option>';
-    });
+    if (overdueDebts.length > 0) {
+      debtOptions += '<optgroup label="\u26A0\uFE0F Deudas Vencidas (' + overdueDebts.length + ')">';
+      overdueDebts.forEach(function(e) {
+        var name = escapeAttr(e.debt.name || e.debt.nombre || 'Deuda ' + (e.idx + 1));
+        var amt = parseFloat(e.debt.amount || e.debt.totalAmount || e.debt.monto || 0);
+        debtOptions += '<option value="' + e.idx + '">\u26A0\uFE0F ' + name + ' (' + currency + formatNumber(amt) + ') - ' + e.daysLate + 'd retraso</option>';
+      });
+      debtOptions += '</optgroup>';
+    }
+    if (currentDebts.length > 0) {
+      debtOptions += '<optgroup label="\u2705 Deudas al Corriente (' + currentDebts.length + ')">';
+      currentDebts.forEach(function(e) {
+        var name = escapeAttr(e.debt.name || e.debt.nombre || 'Deuda ' + (e.idx + 1));
+        var amt = parseFloat(e.debt.amount || e.debt.totalAmount || e.debt.monto || 0);
+        debtOptions += '<option value="' + e.idx + '">' + name + ' (' + currency + formatNumber(amt) + ')</option>';
+      });
+      debtOptions += '</optgroup>';
+    }
     debtOptions += '<option value="manual">Ingresar manualmente</option>';
+
+    // Panel de cuentas pendientes (vencidas)
+    var overduePanel = '';
+    if (overdueDebts.length > 0) {
+      var totalOverdue = overdueDebts.reduce(function(s, e) { return s + parseFloat(e.debt.amount || e.debt.totalAmount || e.debt.monto || 0); }, 0);
+      overduePanel = '<div style="background:linear-gradient(135deg,#FF3B3018,#FF950018);border:1px solid #FF3B3040;border-radius:12px;padding:14px;margin-bottom:14px">'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+        + '<span style="font-size:20px">\u26A0\uFE0F</span>'
+        + '<div><div style="font-size:13px;font-weight:700;color:#FF3B30">Cuentas Pendientes Vencidas</div>'
+        + '<div style="font-size:11px;color:' + t.muted + '">' + overdueDebts.length + ' deuda' + (overdueDebts.length !== 1 ? 's' : '') + ' \u2022 Total: <b style="color:#FF3B30">' + currency + formatNumber(totalOverdue) + '</b></div></div></div>';
+      overdueDebts.forEach(function(e) {
+        var name = e.debt.name || e.debt.nombre || 'Deuda';
+        var amt = parseFloat(e.debt.amount || e.debt.totalAmount || e.debt.monto || 0);
+        var dueDate = e.dueStr ? new Date(e.dueStr).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+        overduePanel += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-top:4px;background:' + t.bg + ';border-radius:8px;font-size:12px">'
+          + '<div><span style="font-weight:600">' + escapeHtml(name) + '</span>'
+          + (dueDate ? '<span style="color:' + t.muted + ';margin-left:6px">venc. ' + dueDate + '</span>' : '') + '</div>'
+          + '<div style="text-align:right"><div style="font-weight:700;color:#FF3B30">' + currency + formatNumber(amt) + '</div>'
+          + '<div style="font-size:10px;color:#FF9500">' + e.daysLate + ' d\u00eda' + (e.daysLate !== 1 ? 's' : '') + ' de retraso</div></div></div>';
+      });
+      overduePanel += '</div>';
+    } else {
+      overduePanel = '<div style="background:linear-gradient(135deg,#34C75918,#34C75910);border:1px solid #34C75940;border-radius:12px;padding:12px;margin-bottom:14px;text-align:center">'
+        + '<span style="font-size:16px">\u2705</span> '
+        + '<span style="font-size:13px;font-weight:600;color:#34C759">No tienes deudas vencidas</span>'
+        + '<div style="font-size:11px;color:' + t.muted + ';margin-top:2px">A\u00fan puedes simular un convenio para cualquier deuda.</div></div>';
+    }
 
     card.innerHTML = ''
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
@@ -1089,6 +1152,9 @@
       + '<button class="dc-pa-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button></div>'
       + '<div style="background:' + t.inputBg + ';border-radius:10px;padding:10px;margin-bottom:14px;font-size:12px;color:' + t.muted + ';line-height:1.5">'
       + '\uD83D\uDCA1 Simula un convenio de pago para deudas vencidas: liquidaci\u00f3n en un solo pago o plan de pagos a plazos.</div>'
+
+      // Panel de deudas vencidas
+      + overduePanel
 
       // Selección de deuda
       + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Deuda</label>'

@@ -61,6 +61,8 @@
   var LS_NOTIFICATIONS = 'debtcontrol_notifications';
   var LS_AUTO_SYNC_ENABLED = 'debtcontrol_auto_sync';
   var LS_PRE_SYNC_SNAPSHOT = 'debtcontrol_pre_sync_snapshot';
+  var LS_ACHIEVEMENTS = 'debtcontrol_achievements';
+  var LS_PAID_DEBTS = 'debtcontrol_paid_debts';
 
   var dbUrl = null;
   var connected = false;
@@ -599,6 +601,8 @@
       + '\u2022 Fecha Libre de Deudas + Comparador de Pr\u00e9stamos<br>'
       + '\u2022 Desglose por Categor\u00eda<br>'
       + '\u2022 Convenio de Pago (liquidaci\u00f3n / plan de pagos)<br>'
+      + '\u2022 Sistema de Logros, XP y motivaci\u00f3n<br>'
+      + '\u2022 Registro de deudas liquidadas (activas + hist\u00f3ricas)<br>'
       + '\u2022 Calendario y notificaciones<br>'
       + '\u2022 Seguridad: c\u00f3digo + biometr\u00eda<br>'
       + '\u2022 Accesos r\u00e1pidos de teclado (Ctrl+E/P/U/D/F/K)<br>'
@@ -1437,6 +1441,404 @@
         });
       }
     });
+  }
+
+  // ============================================================
+  // Sistema de Logros y Motivación
+  // ============================================================
+  var ACHIEVEMENTS_DEF = [
+    { id: 'first_paid', icon: '\uD83C\uDF1F', title: 'Primer Paso', desc: 'Liquida tu primera deuda', xp: 50, check: function(pd) { return pd.length >= 1; } },
+    { id: 'paid_3', icon: '\uD83D\uDD25', title: 'En Racha', desc: 'Liquida 3 deudas', xp: 100, check: function(pd) { return pd.length >= 3; } },
+    { id: 'paid_5', icon: '\u2B50', title: 'Imparable', desc: 'Liquida 5 deudas', xp: 200, check: function(pd) { return pd.length >= 5; } },
+    { id: 'paid_10', icon: '\uD83C\uDFC6', title: 'Leyenda', desc: 'Liquida 10 deudas', xp: 500, check: function(pd) { return pd.length >= 10; } },
+    { id: 'amt_1k', icon: '\uD83D\uDCB0', title: 'Primer Mil', desc: 'Liquida m\u00e1s de 1,000 en total', xp: 75, check: function(pd) { var t = pd.reduce(function(s, d) { return s + (d.amount || 0); }, 0); return t >= 1000; } },
+    { id: 'amt_10k', icon: '\uD83D\uDCB5', title: 'Diez Grandes', desc: 'Liquida m\u00e1s de 10,000 en total', xp: 150, check: function(pd) { var t = pd.reduce(function(s, d) { return s + (d.amount || 0); }, 0); return t >= 10000; } },
+    { id: 'amt_50k', icon: '\uD83D\uDCB8', title: 'Gran Liquidador', desc: 'Liquida m\u00e1s de 50,000 en total', xp: 300, check: function(pd) { var t = pd.reduce(function(s, d) { return s + (d.amount || 0); }, 0); return t >= 50000; } },
+    { id: 'amt_100k', icon: '\uD83D\uDC8E', title: 'Maestro Financiero', desc: 'Liquida m\u00e1s de 100,000 en total', xp: 500, check: function(pd) { var t = pd.reduce(function(s, d) { return s + (d.amount || 0); }, 0); return t >= 100000; } },
+    { id: 'historic', icon: '\uD83D\uDCDC', title: 'Historiador', desc: 'Registra una deuda pagada antes de la app', xp: 30, check: function(pd) { return pd.some(function(d) { return d.historic; }); } },
+    { id: 'with_discount', icon: '\u2702\uFE0F', title: 'Negociador', desc: 'Liquida una deuda con descuento (convenio)', xp: 80, check: function(pd) { return pd.some(function(d) { return d.discount && d.discount > 0; }); } },
+    { id: 'debt_free', icon: '\uD83C\uDF89', title: '\u00a1Libre de Deudas!', desc: 'Liquida todas tus deudas activas', xp: 1000, check: function(pd, activeDebts) { return activeDebts === 0 && pd.length > 0; } },
+    { id: 'streak_3m', icon: '\uD83D\uDCC6', title: 'Constancia', desc: 'Liquida deudas en 3 meses diferentes', xp: 120, check: function(pd) { var months = {}; pd.forEach(function(d) { if (d.paidDate) months[d.paidDate.substring(0, 7)] = true; }); return Object.keys(months).length >= 3; } }
+  ];
+
+  var MOTIVATIONAL_MESSAGES = [
+    '\uD83D\uDCAA \u00a1Cada deuda que liquidas es una victoria!',
+    '\uD83C\uDF1F \u00a1Vas por buen camino hacia la libertad financiera!',
+    '\uD83D\uDE80 \u00a1Sigue as\u00ed! Tu futuro yo te lo agradecer\u00e1.',
+    '\uD83C\uDFC6 Los grandes logros se construyen paso a paso.',
+    '\uD83D\uDCB0 Cada peso que pagas es un peso menos de presi\u00f3n.',
+    '\u2728 La disciplina de hoy es la libertad de ma\u00f1ana.',
+    '\uD83C\uDF08 No es la velocidad, es la constancia lo que cuenta.',
+    '\uD83E\uDD73 \u00a1Cel\u00e9brate! Has tomado el control de tus finanzas.',
+    '\uD83C\uDFAF Tu compromiso con tus pagos habla de tu fortaleza.',
+    '\uD83D\uDCA1 Recuerda: la deuda no define tu valor, tu esfuerzo s\u00ed.'
+  ];
+
+  function getPaidDebts() {
+    try { return JSON.parse(localStorage.getItem(LS_PAID_DEBTS) || '[]'); }
+    catch (e) { return []; }
+  }
+
+  function savePaidDebts(list) {
+    localStorage.setItem(LS_PAID_DEBTS, JSON.stringify(list));
+  }
+
+  function getUnlockedAchievements() {
+    try { return JSON.parse(localStorage.getItem(LS_ACHIEVEMENTS) || '[]'); }
+    catch (e) { return []; }
+  }
+
+  function saveUnlockedAchievements(list) {
+    localStorage.setItem(LS_ACHIEVEMENTS, JSON.stringify(list));
+  }
+
+  async function checkAndUnlockAchievements(silent) {
+    var paidDebts = getPaidDebts();
+    var data = await getAllLocalData();
+    var activeDebts = (data.debts || []).filter(function(d) {
+      return parseFloat(d.amount || d.totalAmount || d.monto || 0) > 0;
+    }).length;
+    var unlocked = getUnlockedAchievements();
+    var newlyUnlocked = [];
+
+    ACHIEVEMENTS_DEF.forEach(function(ach) {
+      if (unlocked.indexOf(ach.id) !== -1) return;
+      if (ach.check(paidDebts, activeDebts)) {
+        unlocked.push(ach.id);
+        newlyUnlocked.push(ach);
+      }
+    });
+
+    if (newlyUnlocked.length > 0) {
+      saveUnlockedAchievements(unlocked);
+      if (!silent) {
+        newlyUnlocked.forEach(function(ach) {
+          showAchievementToast(ach);
+        });
+      }
+    }
+    return newlyUnlocked;
+  }
+
+  function showAchievementToast(ach) {
+    var t = getThemeColors();
+    var toast = document.createElement('div');
+    Object.assign(toast.style, {
+      position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%) translateY(-100px)',
+      background: 'linear-gradient(135deg, #FFD700, #FF9500)', color: '#1a1a2e',
+      borderRadius: '16px', padding: '14px 20px', zIndex: '999999',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      boxShadow: '0 8px 32px rgba(255,215,0,0.4)', textAlign: 'center',
+      maxWidth: '340px', width: '90%', transition: 'transform 0.5s cubic-bezier(0.175,0.885,0.32,1.275)'
+    });
+    toast.innerHTML = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:4px">\uD83C\uDF89 \u00a1Logro Desbloqueado!</div>'
+      + '<div style="font-size:28px;margin:4px 0">' + ach.icon + '</div>'
+      + '<div style="font-size:15px;font-weight:700">' + ach.title + '</div>'
+      + '<div style="font-size:12px;opacity:0.8">' + ach.desc + '</div>'
+      + '<div style="font-size:12px;font-weight:700;margin-top:4px;color:#1a1a2e">+' + ach.xp + ' XP</div>';
+    document.body.appendChild(toast);
+    setTimeout(function() { toast.style.transform = 'translateX(-50%) translateY(0)'; }, 50);
+    setTimeout(function() {
+      toast.style.transform = 'translateX(-50%) translateY(-100px)';
+      setTimeout(function() { toast.remove(); }, 500);
+    }, 4000);
+    // Haptic
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
+  }
+
+  function getMotivationalMessage() {
+    return MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)];
+  }
+
+  function calculateLevel(xp) {
+    // Cada nivel necesita 100 XP más que el anterior: nivel 1 = 100, nivel 2 = 300, nivel 3 = 600...
+    var level = 0;
+    var needed = 0;
+    while (xp >= needed + (level + 1) * 100) {
+      level++;
+      needed += level * 100;
+    }
+    var currentLevelXP = xp - needed;
+    var nextLevelXP = (level + 1) * 100;
+    return { level: level, currentXP: currentLevelXP, nextLevelXP: nextLevelXP, totalXP: xp };
+  }
+
+  function getTotalXP() {
+    var unlocked = getUnlockedAchievements();
+    var xp = 0;
+    ACHIEVEMENTS_DEF.forEach(function(ach) {
+      if (unlocked.indexOf(ach.id) !== -1) xp += ach.xp;
+    });
+    return xp;
+  }
+
+  function getLevelTitle(level) {
+    if (level >= 10) return 'Maestro Financiero \uD83D\uDC8E';
+    if (level >= 7) return 'Experto en Finanzas \uD83C\uDFC6';
+    if (level >= 5) return 'Guerrero de Deudas \u2694\uFE0F';
+    if (level >= 3) return 'Controlador Financiero \uD83D\uDCCA';
+    if (level >= 1) return 'Aprendiz de Ahorro \uD83C\uDF31';
+    return 'Novato \uD83D\uDC23';
+  }
+
+  // ============================================================
+  // Marcar Deuda como Liquidada
+  // ============================================================
+  async function showMarkDebtPaid() {
+    var data = await getAllLocalData();
+    var t = getThemeColors();
+    var currency = getCurrency();
+    var paidDebts = getPaidDebts();
+
+    var debts = (data.debts || []).filter(function(d) {
+      return parseFloat(d.amount || d.totalAmount || d.monto || 0) > 0;
+    });
+
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '440px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    var iSt = 'width:100%;padding:10px;border-radius:8px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:13px;box-sizing:border-box;margin-top:4px;outline:none;';
+    var selSt = iSt + 'appearance:auto;';
+
+    // Select de deudas activas
+    var debtOptions = '<option value="">-- Selecciona la deuda liquidada --</option>';
+    debts.forEach(function(d, idx) {
+      var name = escapeAttr(d.name || d.nombre || 'Deuda ' + (idx + 1));
+      var amt = parseFloat(d.amount || d.totalAmount || d.monto || 0);
+      debtOptions += '<option value="active_' + idx + '">' + name + ' (' + currency + formatNumber(amt) + ')</option>';
+    });
+    debtOptions += '<option value="historic">A\u00f1adir deuda pagada antes de la app</option>';
+
+    card.innerHTML = ''
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:18px">\u2705 Registrar Deuda Liquidada</h2>'
+      + '<button class="dc-mpd-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button></div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:10px;padding:10px;margin-bottom:14px;font-size:12px;color:' + t.muted + ';line-height:1.5">'
+      + '\uD83C\uDF89 Registra deudas que ya liquidaste para ganar XP y logros. Tambi\u00e9n puedes agregar deudas que hayas pagado antes de usar la app.</div>'
+
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Deuda</label>'
+      + '<select class="dc-mpd-select" style="' + selSt + '">' + debtOptions + '</select>'
+
+      // Campos para deuda histórica
+      + '<div class="dc-mpd-historic" style="display:none;margin-top:8px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Nombre de la deuda</label>'
+      + '<input class="dc-mpd-name" type="text" placeholder="Ej: Tarjeta VISA, Pr\u00e9stamo banco..." style="' + iSt + '">'
+      + '<div style="margin-top:8px"><label style="font-size:12px;font-weight:600;color:' + t.muted + '">Monto que se adeudaba (' + currency + ')</label>'
+      + '<input class="dc-mpd-amount" type="number" placeholder="Ej: 15000" style="' + iSt + '"></div>'
+      + '<div style="margin-top:8px"><label style="font-size:12px;font-weight:600;color:' + t.muted + '">Categor\u00eda (opcional)</label>'
+      + '<input class="dc-mpd-category" type="text" placeholder="Ej: Tarjeta de cr\u00e9dito" style="' + iSt + '"></div></div>'
+
+      // Campos comunes
+      + '<div style="margin-top:10px"><label style="font-size:12px;font-weight:600;color:' + t.muted + '">Fecha en que se liquid\u00f3</label>'
+      + '<input class="dc-mpd-date" type="date" value="' + new Date().toISOString().split('T')[0] + '" style="' + iSt + '"></div>'
+
+      + '<div style="margin-top:10px"><label style="font-size:12px;font-weight:600;color:' + t.muted + '">\u00bfSe obtuvo descuento? (convenio/negociaci\u00f3n)</label>'
+      + '<select class="dc-mpd-discount-toggle" style="' + selSt + '">'
+      + '<option value="no">No, se pag\u00f3 completo</option>'
+      + '<option value="yes">S\u00ed, se obtuvo descuento</option>'
+      + '</select></div>'
+
+      + '<div class="dc-mpd-discount-fields" style="display:none;margin-top:8px">'
+      + '<label style="font-size:12px;font-weight:600;color:' + t.muted + '">Monto original antes del descuento (' + currency + ')</label>'
+      + '<input class="dc-mpd-orig-amount" type="number" placeholder="Ej: 50000" style="' + iSt + '">'
+      + '</div>'
+
+      + '<div style="margin-top:10px"><label style="font-size:12px;font-weight:600;color:' + t.muted + '">Nota (opcional)</label>'
+      + '<input class="dc-mpd-note" type="text" placeholder="Ej: Liquidada con aguinaldo" style="' + iSt + '"></div>'
+
+      + '<button class="dc-mpd-save" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#34C759,#30D158);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:16px">\u2705 Registrar como Liquidada</button>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    card.querySelector('.dc-mpd-close').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    // Toggle campos históricos
+    var sel = card.querySelector('.dc-mpd-select');
+    sel.addEventListener('change', function() {
+      card.querySelector('.dc-mpd-historic').style.display = sel.value === 'historic' ? 'block' : 'none';
+    });
+
+    // Toggle descuento
+    var discToggle = card.querySelector('.dc-mpd-discount-toggle');
+    discToggle.addEventListener('change', function() {
+      card.querySelector('.dc-mpd-discount-fields').style.display = discToggle.value === 'yes' ? 'block' : 'none';
+    });
+
+    // Guardar
+    card.querySelector('.dc-mpd-save').addEventListener('click', async function() {
+      var selVal = sel.value;
+      if (!selVal) { showToast('\u26A0\uFE0F Selecciona una deuda'); return; }
+
+      var entry = { id: 'pd_' + Date.now(), paidDate: card.querySelector('.dc-mpd-date').value || new Date().toISOString().split('T')[0], note: card.querySelector('.dc-mpd-note').value || '' };
+
+      if (selVal === 'historic') {
+        // Deuda histórica
+        var hName = card.querySelector('.dc-mpd-name').value;
+        var hAmount = parseFloat(card.querySelector('.dc-mpd-amount').value) || 0;
+        if (!hName || hAmount <= 0) { showToast('\u26A0\uFE0F Ingresa nombre y monto de la deuda'); return; }
+        entry.name = hName;
+        entry.amount = hAmount;
+        entry.category = card.querySelector('.dc-mpd-category').value || '';
+        entry.historic = true;
+      } else {
+        // Deuda activa
+        var idx = parseInt(selVal.replace('active_', ''));
+        var debt = debts[idx];
+        if (!debt) { showToast('\u26A0\uFE0F Deuda no encontrada'); return; }
+        entry.name = debt.name || debt.nombre || 'Deuda';
+        entry.amount = parseFloat(debt.amount || debt.totalAmount || debt.monto || 0);
+        entry.category = debt.category || debt.categoria || '';
+        entry.historic = false;
+        entry.originalDebtId = debt.id || null;
+      }
+
+      // Descuento
+      if (discToggle.value === 'yes') {
+        var origAmt = parseFloat(card.querySelector('.dc-mpd-orig-amount').value) || 0;
+        if (origAmt > entry.amount) {
+          entry.discount = origAmt - entry.amount;
+          entry.originalAmount = origAmt;
+        }
+      }
+
+      var list = getPaidDebts();
+      list.push(entry);
+      savePaidDebts(list);
+
+      overlay.remove();
+      showToast('\uD83C\uDF89 \u00a1' + escapeHtml(entry.name) + ' registrada como liquidada!');
+
+      // Verificar logros
+      var newAch = await checkAndUnlockAchievements(false);
+
+      // Mensaje motivacional
+      setTimeout(function() {
+        showToast(getMotivationalMessage(), 4000);
+      }, newAch.length > 0 ? 4500 : 1500);
+    });
+  }
+
+  // ============================================================
+  // Pantalla: Mis Logros y Progreso
+  // ============================================================
+  async function showAchievementsScreen() {
+    var t = getThemeColors();
+    var currency = getCurrency();
+    var paidDebts = getPaidDebts();
+    var unlocked = getUnlockedAchievements();
+    var totalXP = getTotalXP();
+    var levelInfo = calculateLevel(totalXP);
+    var levelTitle = getLevelTitle(levelInfo.level);
+
+    // Stats
+    var totalPaid = paidDebts.reduce(function(s, d) { return s + (d.amount || 0); }, 0);
+    var totalDiscount = paidDebts.reduce(function(s, d) { return s + (d.discount || 0); }, 0);
+    var historicCount = paidDebts.filter(function(d) { return d.historic; }).length;
+    var data = await getAllLocalData();
+    var activeDebts = (data.debts || []).filter(function(d) {
+      return parseFloat(d.amount || d.totalAmount || d.monto || 0) > 0;
+    }).length;
+
+    var overlay = createModalOverlay();
+    var card = document.createElement('div');
+    Object.assign(card.style, {
+      background: t.bg, borderRadius: '20px', padding: '28px 24px', maxWidth: '440px',
+      width: '100%', maxHeight: '85vh', overflowY: 'auto', color: t.txt,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+    });
+
+    // Barra de XP
+    var xpPct = levelInfo.nextLevelXP > 0 ? Math.min(100, (levelInfo.currentXP / levelInfo.nextLevelXP) * 100) : 100;
+
+    var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:18px">\uD83C\uDFC6 Mis Logros</h2>'
+      + '<button class="dc-ach-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:' + t.txt + '">\u2715</button></div>';
+
+    // Perfil de nivel
+    html += '<div style="background:linear-gradient(135deg,#FFD700,#FF9500);border-radius:16px;padding:18px;color:#1a1a2e;text-align:center;margin-bottom:16px">'
+      + '<div style="font-size:40px;margin-bottom:2px">' + (levelInfo.level >= 10 ? '\uD83D\uDC8E' : levelInfo.level >= 5 ? '\uD83C\uDFC6' : levelInfo.level >= 1 ? '\uD83C\uDF1F' : '\uD83D\uDC23') + '</div>'
+      + '<div style="font-size:22px;font-weight:800">Nivel ' + levelInfo.level + '</div>'
+      + '<div style="font-size:13px;font-weight:600;opacity:0.8">' + levelTitle + '</div>'
+      + '<div style="background:rgba(0,0,0,0.2);border-radius:8px;height:10px;margin:10px 0 4px 0;overflow:hidden">'
+      + '<div style="width:' + xpPct + '%;height:100%;background:rgba(255,255,255,0.9);border-radius:8px;transition:width 0.5s"></div></div>'
+      + '<div style="font-size:11px;font-weight:600;opacity:0.7">' + levelInfo.currentXP + ' / ' + levelInfo.nextLevelXP + ' XP \u2022 Total: ' + totalXP + ' XP</div></div>';
+
+    // Mensaje motivacional
+    html += '<div style="background:linear-gradient(135deg,#007AFF20,#5856D620);border:1px solid #007AFF30;border-radius:12px;padding:12px;text-align:center;margin-bottom:16px;font-size:13px;font-weight:500">'
+      + getMotivationalMessage() + '</div>';
+
+    // Stats grid
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px;text-align:center">'
+      + '<div style="font-size:22px;font-weight:800;color:#34C759">' + paidDebts.length + '</div>'
+      + '<div style="font-size:11px;color:' + t.muted + '">Deudas Liquidadas</div></div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px;text-align:center">'
+      + '<div style="font-size:22px;font-weight:800;color:#007AFF">' + activeDebts + '</div>'
+      + '<div style="font-size:11px;color:' + t.muted + '">Deudas Activas</div></div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px;text-align:center">'
+      + '<div style="font-size:16px;font-weight:800;color:#34C759">' + currency + formatNumber(totalPaid) + '</div>'
+      + '<div style="font-size:11px;color:' + t.muted + '">Total Liquidado</div></div>'
+      + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px;text-align:center">'
+      + '<div style="font-size:16px;font-weight:800;color:#FF9500">' + currency + formatNumber(totalDiscount) + '</div>'
+      + '<div style="font-size:11px;color:' + t.muted + '">Ahorrado en Convenios</div></div></div>';
+
+    // Logros
+    html += '<div style="font-size:14px;font-weight:700;margin-bottom:10px">\uD83C\uDFC5 Logros (' + unlocked.length + '/' + ACHIEVEMENTS_DEF.length + ')</div>';
+
+    ACHIEVEMENTS_DEF.forEach(function(ach) {
+      var isUnlocked = unlocked.indexOf(ach.id) !== -1;
+      html += '<div style="display:flex;align-items:center;gap:12px;padding:10px;margin-bottom:6px;border-radius:12px;'
+        + 'background:' + (isUnlocked ? 'linear-gradient(135deg,' + t.inputBg + ',' + t.inputBg + ')' : t.inputBg) + ';'
+        + 'border:1px solid ' + (isUnlocked ? '#FFD70060' : 'transparent') + ';'
+        + 'opacity:' + (isUnlocked ? '1' : '0.5') + '">'
+        + '<div style="font-size:28px;' + (isUnlocked ? '' : 'filter:grayscale(100%)') + '">' + ach.icon + '</div>'
+        + '<div style="flex:1"><div style="font-size:13px;font-weight:700">' + ach.title + (isUnlocked ? '' : ' \uD83D\uDD12') + '</div>'
+        + '<div style="font-size:11px;color:' + t.muted + '">' + ach.desc + '</div></div>'
+        + '<div style="font-size:12px;font-weight:700;color:' + (isUnlocked ? '#FFD700' : t.muted) + '">+' + ach.xp + '</div></div>';
+    });
+
+    // Historial de deudas liquidadas
+    if (paidDebts.length > 0) {
+      html += '<div style="font-size:14px;font-weight:700;margin:16px 0 10px 0">\uD83D\uDCDC Deudas Liquidadas</div>';
+      // Ordenar por fecha más reciente
+      var sorted = paidDebts.slice().sort(function(a, b) { return (b.paidDate || '').localeCompare(a.paidDate || ''); });
+      sorted.forEach(function(d) {
+        var dateStr = d.paidDate ? new Date(d.paidDate + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+        html += '<div style="background:' + t.inputBg + ';border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">'
+          + '<div><div style="font-size:13px;font-weight:600">' + (d.historic ? '\uD83D\uDCDC ' : '\u2705 ') + escapeHtml(d.name || 'Deuda') + '</div>'
+          + '<div style="font-size:11px;color:' + t.muted + '">' + dateStr
+          + (d.historic ? ' \u2022 Hist\u00f3rica' : '')
+          + (d.category ? ' \u2022 ' + escapeHtml(d.category) : '')
+          + (d.note ? ' \u2022 ' + escapeHtml(d.note) : '') + '</div></div>'
+          + '<div style="text-align:right"><div style="font-size:14px;font-weight:700;color:#34C759">' + currency + formatNumber(d.amount || 0) + '</div>'
+          + (d.discount > 0 ? '<div style="font-size:10px;color:#FF9500">Ahorro: ' + currency + formatNumber(d.discount) + '</div>' : '') + '</div></div>';
+      });
+    } else {
+      html += '<div style="text-align:center;padding:20px;color:' + t.muted + ';font-size:13px">'
+        + '<div style="font-size:40px;margin-bottom:8px">\uD83C\uDFAF</div>'
+        + 'A\u00fan no has registrado deudas liquidadas.<br>Marca una deuda como pagada para empezar a ganar logros.</div>';
+    }
+
+    html += '<div style="display:flex;gap:8px;margin-top:16px">'
+      + '<button class="dc-ach-add" style="flex:1;padding:12px;border:none;border-radius:12px;background:linear-gradient(135deg,#34C759,#30D158);color:#fff;font-size:13px;font-weight:600;cursor:pointer">\u2795 Registrar Liquidada</button>'
+      + '<button class="dc-ach-close2" style="flex:1;padding:12px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:13px;cursor:pointer">Cerrar</button></div>';
+
+    card.innerHTML = html;
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    card.querySelector('.dc-ach-close').addEventListener('click', function() { overlay.remove(); });
+    card.querySelector('.dc-ach-close2').addEventListener('click', function() { overlay.remove(); });
+    card.querySelector('.dc-ach-add').addEventListener('click', function() { overlay.remove(); showMarkDebtPaid(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    // Verificar logros al abrir (por si hay nuevos)
+    await checkAndUnlockAchievements(false);
   }
 
   // ============================================================
@@ -3098,6 +3500,10 @@
       { icon: '\uD83D\uDCCA', label: 'Desglose por Categor\u00eda', action: showCategoryBreakdown },
       { icon: '\uD83E\uDD1D', label: 'Convenio de Pago', action: showPaymentAgreement },
       { sep: true },
+      { header: '\uD83C\uDFC6 Progreso' },
+      { icon: '\uD83C\uDFC6', label: 'Mis Logros y XP', action: showAchievementsScreen },
+      { icon: '\u2705', label: 'Registrar Deuda Liquidada', action: showMarkDebtPaid },
+      { sep: true },
       { header: '\u2699\uFE0F Ajustes' },
       { icon: '\u2699\uFE0F', label: 'Configurar Firebase', action: showFirebaseSetup },
       { icon: '\uD83D\uDCCB', label: 'Historial de Sync', action: showSyncHistory },
@@ -3303,6 +3709,9 @@
     setTimeout(checkDueDates, 5000);
     // Re-check cada 4 horas
     setInterval(checkDueDates, 4 * 60 * 60 * 1000);
+
+    // Verificar logros silenciosamente al iniciar
+    setTimeout(function() { checkAndUnlockAchievements(true); }, 6000);
 
     console.log('[CloudSync] v' + SYNC_VERSION + ' | Firebase:', connected ? '\u2705' : '\u274C', '| Moneda:', getCurrency());
   }

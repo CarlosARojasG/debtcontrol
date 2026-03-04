@@ -63,6 +63,9 @@
   var LS_PRE_SYNC_SNAPSHOT = 'debtcontrol_pre_sync_snapshot';
   var LS_ACHIEVEMENTS = 'debtcontrol_achievements';
   var LS_PAID_DEBTS = 'debtcontrol_paid_debts';
+  var LS_RECURRING_BILLS = 'debtcontrol_recurring_bills';
+  var LS_RECURRING_RECORDS = 'debtcontrol_recurring_records';
+  var LS_RECURRING_CHECKED = 'debtcontrol_recurring_checked';
 
   var dbUrl = null;
   var connected = false;
@@ -604,6 +607,7 @@
       + '\u2022 Sistema de Logros, XP y motivaci\u00f3n<br>'
       + '\u2022 Registro de deudas liquidadas (activas + hist\u00f3ricas)<br>'
       + '\u2022 Historial agrupado por entidad, tipo y estado<br>'
+      + '\u2022 Pagos recurrentes con recordatorio mensual<br>'
       + '\u2022 Calendario y notificaciones<br>'
       + '\u2022 Seguridad: c\u00f3digo + biometr\u00eda<br>'
       + '\u2022 Accesos r\u00e1pidos de teclado (Ctrl+E/P/U/D/F/K)<br>'
@@ -2159,6 +2163,390 @@
 
     // Iniciar con vista por entidad
     showTab('lender');
+  }
+
+  // ============================================================
+  // Pagos Recurrentes (Gastos Fijos Mensuales)
+  // ============================================================
+
+  var RECURRING_CATEGORIES = [
+    { id: 'celular', icon: '\uD83D\uDCF1', label: 'Plan Celular' },
+    { id: 'internet', icon: '\uD83C\uDF10', label: 'Internet' },
+    { id: 'agua', icon: '\uD83D\uDCA7', label: 'Agua' },
+    { id: 'luz', icon: '\uD83D\uDCA1', label: 'Luz / Electricidad' },
+    { id: 'gas', icon: '\uD83D\uDD25', label: 'Gas' },
+    { id: 'gym', icon: '\uD83C\uDFCB\uFE0F', label: 'Gimnasio' },
+    { id: 'streaming', icon: '\uD83C\uDFAC', label: 'Streaming' },
+    { id: 'seguro', icon: '\uD83D\uDEE1\uFE0F', label: 'Seguro' },
+    { id: 'renta', icon: '\uD83C\uDFE0', label: 'Renta / Alquiler' },
+    { id: 'transporte', icon: '\uD83D\uDE8C', label: 'Transporte' },
+    { id: 'educacion', icon: '\uD83C\uDF93', label: 'Educaci\u00f3n' },
+    { id: 'otro', icon: '\uD83D\uDCCC', label: 'Otro' }
+  ];
+
+  function getRecurringBills() {
+    try { return JSON.parse(localStorage.getItem(LS_RECURRING_BILLS)) || []; } catch(e) { return []; }
+  }
+  function saveRecurringBills(bills) {
+    localStorage.setItem(LS_RECURRING_BILLS, JSON.stringify(bills));
+  }
+  function getRecurringRecords() {
+    try { return JSON.parse(localStorage.getItem(LS_RECURRING_RECORDS)) || {}; } catch(e) { return {}; }
+  }
+  function saveRecurringRecords(records) {
+    localStorage.setItem(LS_RECURRING_RECORDS, JSON.stringify(records));
+  }
+  function getCurrentMonth() {
+    var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+  function getMonthLabel(ym) {
+    var parts = ym.split('-');
+    var months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    return months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+  }
+
+  function showRecurringPayments() {
+    var t = getTheme();
+    var bills = getRecurringBills();
+    var records = getRecurringRecords();
+    var month = getCurrentMonth();
+
+    function buildBillsList() {
+      if (!bills.length) return '<div style="text-align:center;padding:30px 10px;color:' + t.mutedText + '">'
+        + '<div style="font-size:40px;margin-bottom:12px">\uD83D\uDCCB</div>'
+        + '<div>No tienes gastos recurrentes registrados</div>'
+        + '<div style="font-size:12px;margin-top:6px">Agrega servicios como celular, internet, luz, etc.</div></div>';
+
+      var html = '';
+      bills.forEach(function(bill) {
+        var cat = RECURRING_CATEGORIES.find(function(c) { return c.id === bill.category; }) || RECURRING_CATEGORIES[RECURRING_CATEGORIES.length - 1];
+        var rec = (records[bill.id] && records[bill.id][month]) || null;
+        var statusIcon = rec ? '\u2705' : '\u23F3';
+        var statusLabel = rec ? (getCurrency() + Number(rec.amount).toLocaleString()) : 'Pendiente';
+        var statusColor = rec ? '#27ae60' : '#e67e22';
+
+        html += '<div class="dc-rb-item" data-id="' + bill.id + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + t.inputBg + ';border-radius:10px;margin-bottom:8px;cursor:pointer">'
+          + '<div style="font-size:24px;width:36px;text-align:center">' + cat.icon + '</div>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + sanitize(bill.name) + '</div>'
+          + '<div style="font-size:11px;color:' + t.mutedText + '">' + cat.label
+          + (bill.estimatedAmount ? ' \u2022 ~' + getCurrency() + Number(bill.estimatedAmount).toLocaleString() : '') + '</div></div>'
+          + '<div style="text-align:right">'
+          + '<div style="font-size:16px">' + statusIcon + '</div>'
+          + '<div style="font-size:11px;font-weight:600;color:' + statusColor + '">' + statusLabel + '</div></div></div>';
+      });
+      return html;
+    }
+
+    function buildSummary() {
+      if (!bills.length) return '';
+      var registered = 0, pending = 0, totalMonth = 0;
+      bills.forEach(function(bill) {
+        if (!bill.active) return;
+        var rec = records[bill.id] && records[bill.id][month];
+        if (rec) { registered++; totalMonth += Number(rec.amount) || 0; } else { pending++; }
+      });
+      return '<div style="display:flex;gap:8px;margin-bottom:14px">'
+        + '<div style="flex:1;background:#27ae6022;border-radius:10px;padding:10px;text-align:center">'
+        + '<div style="font-size:18px;font-weight:700;color:#27ae60">' + registered + '</div>'
+        + '<div style="font-size:10px;color:' + t.mutedText + '">Registrados</div></div>'
+        + '<div style="flex:1;background:#e67e2222;border-radius:10px;padding:10px;text-align:center">'
+        + '<div style="font-size:18px;font-weight:700;color:#e67e22">' + pending + '</div>'
+        + '<div style="font-size:10px;color:' + t.mutedText + '">Pendientes</div></div>'
+        + '<div style="flex:1;background:' + t.accent + '22;border-radius:10px;padding:10px;text-align:center">'
+        + '<div style="font-size:18px;font-weight:700;color:' + t.accent + '">' + getCurrency() + totalMonth.toLocaleString() + '</div>'
+        + '<div style="font-size:10px;color:' + t.mutedText + '">Total Mes</div></div></div>';
+    }
+
+    var overlay = document.createElement('div');
+    overlay.className = 'dc-agreement-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+
+    var card = document.createElement('div');
+    card.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:18px;max-width:440px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)';
+
+    function render() {
+      bills = getRecurringBills();
+      records = getRecurringRecords();
+
+      card.innerHTML = '<div style="padding:18px 20px 14px;border-bottom:1px solid ' + t.border + ';display:flex;align-items:center;justify-content:space-between">'
+        + '<div style="font-weight:700;font-size:17px">\uD83D\uDD04 Pagos Recurrentes</div>'
+        + '<div style="display:flex;gap:8px;align-items:center">'
+        + '<button class="dc-rb-add" style="background:' + t.accent + ';color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer">+ Nuevo</button>'
+        + '<button class="dc-rb-close" style="background:none;border:none;cursor:pointer;font-size:22px;color:' + t.mutedText + '">\u2715</button></div></div>'
+        + '<div style="padding:16px 20px;overflow-y:auto;flex:1">'
+        + '<div style="text-align:center;margin-bottom:14px;font-size:13px;color:' + t.mutedText + ';font-weight:600">\uD83D\uDCC5 ' + getMonthLabel(month) + '</div>'
+        + buildSummary()
+        + '<div class="dc-rb-list">' + buildBillsList() + '</div>'
+        + '</div>'
+        + '<div style="padding:12px 20px;border-top:1px solid ' + t.border + ';display:flex;gap:8px">'
+        + '<button class="dc-rb-history" style="flex:1;background:' + t.inputBg + ';color:' + t.text + ';border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">\uD83D\uDCCA Historial</button>'
+        + '<button class="dc-rb-close2" style="flex:1;background:' + t.accent + ';color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">Cerrar</button></div>';
+
+      card.querySelector('.dc-rb-close').addEventListener('click', function() { overlay.remove(); });
+      card.querySelector('.dc-rb-close2').addEventListener('click', function() { overlay.remove(); });
+      card.querySelector('.dc-rb-add').addEventListener('click', function() { showAddBill(); });
+      card.querySelector('.dc-rb-history').addEventListener('click', function() { showRecurringHistory(); });
+
+      card.querySelectorAll('.dc-rb-item').forEach(function(el) {
+        el.addEventListener('click', function() {
+          var id = el.getAttribute('data-id');
+          showBillActions(id);
+        });
+      });
+    }
+
+    async function showAddBill() {
+      var catHtml = RECURRING_CATEGORIES.map(function(c) {
+        return '<option value="' + c.id + '">' + c.icon + ' ' + c.label + '</option>';
+      }).join('');
+
+      var formOverlay = document.createElement('div');
+      formOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px';
+
+      var form = document.createElement('div');
+      form.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:16px;max-width:380px;width:100%;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,.3)';
+      form.innerHTML = '<div style="font-weight:700;font-size:16px;margin-bottom:16px">\u2795 Nuevo Gasto Recurrente</div>'
+        + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Nombre del servicio</label>'
+        + '<input id="dc-rb-name" placeholder="Ej: Telcel, Telmex, CFE..." style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;margin-bottom:12px;box-sizing:border-box" />'
+        + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Categor\u00eda</label>'
+        + '<select id="dc-rb-cat" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;margin-bottom:12px;box-sizing:border-box">' + catHtml + '</select>'
+        + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Monto estimado mensual (opcional)</label>'
+        + '<input id="dc-rb-amount" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;margin-bottom:16px;box-sizing:border-box" />'
+        + '<div style="display:flex;gap:8px">'
+        + '<button id="dc-rb-cancel" style="flex:1;padding:10px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;font-weight:600;cursor:pointer">Cancelar</button>'
+        + '<button id="dc-rb-save" style="flex:1;padding:10px;border-radius:10px;border:none;background:' + t.accent + ';color:#fff;font-size:14px;font-weight:600;cursor:pointer">Guardar</button></div>';
+
+      formOverlay.appendChild(form);
+      document.body.appendChild(formOverlay);
+      form.querySelector('#dc-rb-name').focus();
+
+      formOverlay.addEventListener('click', function(e) { if (e.target === formOverlay) formOverlay.remove(); });
+      form.querySelector('#dc-rb-cancel').addEventListener('click', function() { formOverlay.remove(); });
+      form.querySelector('#dc-rb-save').addEventListener('click', function() {
+        var name = form.querySelector('#dc-rb-name').value.trim();
+        if (!name) { showToast('\u26A0\uFE0F Ingresa el nombre del servicio'); return; }
+        var cat = form.querySelector('#dc-rb-cat').value;
+        var est = parseFloat(form.querySelector('#dc-rb-amount').value) || 0;
+        var newBill = { id: 'rb_' + Date.now(), name: name, category: cat, estimatedAmount: est, active: true, createdAt: new Date().toISOString() };
+        bills.push(newBill);
+        saveRecurringBills(bills);
+        formOverlay.remove();
+        showToast('\u2705 Gasto recurrente agregado');
+        render();
+      });
+    }
+
+    async function showBillActions(billId) {
+      var bill = bills.find(function(b) { return b.id === billId; });
+      if (!bill) return;
+      var rec = records[billId] && records[billId][month];
+      var cat = RECURRING_CATEGORIES.find(function(c) { return c.id === bill.category; }) || RECURRING_CATEGORIES[RECURRING_CATEGORIES.length - 1];
+
+      var actOverlay = document.createElement('div');
+      actOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px';
+
+      var actCard = document.createElement('div');
+      actCard.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:16px;max-width:360px;width:100%;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,.3)';
+
+      var statusHtml = rec
+        ? '<div style="background:#27ae6018;border-radius:10px;padding:12px;margin-bottom:16px">'
+          + '<div style="font-size:12px;color:#27ae60;font-weight:600">\u2705 Registrado este mes</div>'
+          + '<div style="font-size:20px;font-weight:700;color:#27ae60;margin-top:4px">' + getCurrency() + Number(rec.amount).toLocaleString() + '</div>'
+          + '<div style="font-size:11px;color:' + t.mutedText + '">' + new Date(rec.date).toLocaleDateString() + '</div></div>'
+        : '<div style="background:#e67e2218;border-radius:10px;padding:12px;margin-bottom:16px">'
+          + '<div style="font-size:12px;color:#e67e22;font-weight:600">\u23F3 Pendiente este mes</div>'
+          + (bill.estimatedAmount ? '<div style="font-size:14px;color:' + t.mutedText + ';margin-top:4px">Estimado: ' + getCurrency() + Number(bill.estimatedAmount).toLocaleString() + '</div>' : '')
+          + '</div>';
+
+      actCard.innerHTML = '<div style="text-align:center;margin-bottom:16px">'
+        + '<div style="font-size:36px;margin-bottom:8px">' + cat.icon + '</div>'
+        + '<div style="font-weight:700;font-size:16px">' + sanitize(bill.name) + '</div>'
+        + '<div style="font-size:12px;color:' + t.mutedText + '">' + cat.label + '</div></div>'
+        + statusHtml
+        + '<div style="display:flex;flex-direction:column;gap:8px">'
+        + '<button class="dc-rb-register" style="width:100%;padding:11px;border-radius:10px;border:none;background:' + t.accent + ';color:#fff;font-size:14px;font-weight:600;cursor:pointer">' + (rec ? '\uD83D\uDD04 Actualizar Monto' : '\uD83D\uDCB0 Registrar Monto') + '</button>'
+        + '<button class="dc-rb-delete" style="width:100%;padding:11px;border-radius:10px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;font-size:14px;font-weight:600;cursor:pointer">\uD83D\uDDD1\uFE0F Eliminar Servicio</button>'
+        + '<button class="dc-rb-back" style="width:100%;padding:11px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:14px;font-weight:600;cursor:pointer">Volver</button></div>';
+
+      actOverlay.appendChild(actCard);
+      document.body.appendChild(actOverlay);
+      actOverlay.addEventListener('click', function(e) { if (e.target === actOverlay) actOverlay.remove(); });
+      actCard.querySelector('.dc-rb-back').addEventListener('click', function() { actOverlay.remove(); });
+
+      actCard.querySelector('.dc-rb-register').addEventListener('click', async function() {
+        var defVal = rec ? String(rec.amount) : (bill.estimatedAmount ? String(bill.estimatedAmount) : '');
+        var val = await dcPrompt('\uD83D\uDCB0 Monto de ' + bill.name + ' (' + getMonthLabel(month) + ')', {
+          icon: cat.icon, placeholder: '0.00', defaultValue: defVal, inputType: 'number'
+        });
+        if (val === null || val === '') return;
+        var amount = parseFloat(val);
+        if (isNaN(amount) || amount < 0) { showToast('\u26A0\uFE0F Monto inv\u00e1lido'); return; }
+        if (!records[billId]) records[billId] = {};
+        records[billId][month] = { amount: amount, date: new Date().toISOString() };
+        saveRecurringRecords(records);
+        showToast('\u2705 Monto registrado: ' + getCurrency() + amount.toLocaleString());
+        actOverlay.remove();
+        render();
+      });
+
+      actCard.querySelector('.dc-rb-delete').addEventListener('click', async function() {
+        var ok = await dcConfirm('\u00BFEliminar "' + bill.name + '" de tus gastos recurrentes?', { danger: true });
+        if (!ok) return;
+        bills = bills.filter(function(b) { return b.id !== billId; });
+        saveRecurringBills(bills);
+        delete records[billId];
+        saveRecurringRecords(records);
+        showToast('\uD83D\uDDD1\uFE0F Servicio eliminado');
+        actOverlay.remove();
+        render();
+      });
+    }
+
+    function showRecurringHistory() {
+      var histOverlay = document.createElement('div');
+      histOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px';
+
+      var histCard = document.createElement('div');
+      histCard.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:16px;max-width:420px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.3)';
+
+      // Recolectar todos los meses con registros
+      var allMonths = {};
+      Object.keys(records).forEach(function(billId) {
+        Object.keys(records[billId]).forEach(function(m) { allMonths[m] = true; });
+      });
+      var sortedMonths = Object.keys(allMonths).sort().reverse();
+
+      var histHtml = '';
+      if (!sortedMonths.length) {
+        histHtml = '<div style="text-align:center;padding:30px;color:' + t.mutedText + '">No hay registros a\u00fan</div>';
+      } else {
+        sortedMonths.forEach(function(m) {
+          var monthTotal = 0;
+          var rows = '';
+          bills.forEach(function(bill) {
+            var rec = records[bill.id] && records[bill.id][m];
+            if (rec) {
+              var catObj = RECURRING_CATEGORIES.find(function(c) { return c.id === bill.category; }) || RECURRING_CATEGORIES[RECURRING_CATEGORIES.length - 1];
+              monthTotal += Number(rec.amount) || 0;
+              rows += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px">'
+                + '<span>' + catObj.icon + ' ' + sanitize(bill.name) + '</span>'
+                + '<span style="font-weight:600">' + getCurrency() + Number(rec.amount).toLocaleString() + '</span></div>';
+            }
+          });
+          histHtml += '<div style="margin-bottom:16px">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+            + '<div style="font-weight:700;font-size:14px">\uD83D\uDCC5 ' + getMonthLabel(m) + '</div>'
+            + '<div style="font-weight:700;color:' + t.accent + ';font-size:14px">' + getCurrency() + monthTotal.toLocaleString() + '</div></div>'
+            + rows + '</div>';
+        });
+      }
+
+      histCard.innerHTML = '<div style="padding:18px 20px 14px;border-bottom:1px solid ' + t.border + ';display:flex;justify-content:space-between;align-items:center">'
+        + '<div style="font-weight:700;font-size:16px">\uD83D\uDCCA Historial de Gastos Fijos</div>'
+        + '<button class="dc-rbh-close" style="background:none;border:none;cursor:pointer;font-size:20px;color:' + t.mutedText + '">\u2715</button></div>'
+        + '<div style="padding:16px 20px;overflow-y:auto;flex:1">' + histHtml + '</div>'
+        + '<div style="padding:12px 20px;border-top:1px solid ' + t.border + '">'
+        + '<button class="dc-rbh-close2" style="width:100%;padding:10px;border-radius:10px;border:none;background:' + t.accent + ';color:#fff;font-size:14px;font-weight:600;cursor:pointer">Cerrar</button></div>';
+
+      histOverlay.appendChild(histCard);
+      document.body.appendChild(histOverlay);
+      histOverlay.addEventListener('click', function(e) { if (e.target === histOverlay) histOverlay.remove(); });
+      histCard.querySelector('.dc-rbh-close').addEventListener('click', function() { histOverlay.remove(); });
+      histCard.querySelector('.dc-rbh-close2').addEventListener('click', function() { histOverlay.remove(); });
+    }
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    render();
+  }
+
+  // Verificar pagos recurrentes pendientes al inicio del mes
+  async function checkRecurringPayments() {
+    var bills = getRecurringBills().filter(function(b) { return b.active !== false; });
+    if (!bills.length) return;
+
+    var month = getCurrentMonth();
+    var checkedKey = localStorage.getItem(LS_RECURRING_CHECKED);
+    // Si ya revisamos este mes hoy, no volver a preguntar
+    var today = new Date().toISOString().slice(0, 10);
+    if (checkedKey === month + '_' + today) return;
+
+    var records = getRecurringRecords();
+    var pending = bills.filter(function(bill) {
+      return !(records[bill.id] && records[bill.id][month]);
+    });
+
+    if (!pending.length) {
+      localStorage.setItem(LS_RECURRING_CHECKED, month + '_' + today);
+      return;
+    }
+
+    var t = getTheme();
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+
+    var card = document.createElement('div');
+    card.style.cssText = 'background:' + t.cardBg + ';color:' + t.text + ';border-radius:18px;max-width:400px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)';
+
+    var listHtml = pending.map(function(bill) {
+      var cat = RECURRING_CATEGORIES.find(function(c) { return c.id === bill.category; }) || RECURRING_CATEGORIES[RECURRING_CATEGORIES.length - 1];
+      return '<div class="dc-rbc-item" data-id="' + bill.id + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + t.inputBg + ';border-radius:10px;margin-bottom:8px;cursor:pointer">'
+        + '<div style="font-size:22px;width:32px;text-align:center">' + cat.icon + '</div>'
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="font-weight:600;font-size:14px">' + sanitize(bill.name) + '</div>'
+        + (bill.estimatedAmount ? '<div style="font-size:11px;color:' + t.mutedText + '">Estimado: ' + getCurrency() + Number(bill.estimatedAmount).toLocaleString() + '</div>' : '')
+        + '</div>'
+        + '<div style="font-size:13px;color:#e67e22;font-weight:600">\uD83D\uDCB0 Registrar</div></div>';
+    }).join('');
+
+    card.innerHTML = '<div style="padding:18px 20px 14px;border-bottom:1px solid ' + t.border + '">'
+      + '<div style="font-weight:700;font-size:17px">\uD83D\uDD14 Gastos Pendientes de ' + getMonthLabel(month) + '</div>'
+      + '<div style="font-size:12px;color:' + t.mutedText + ';margin-top:4px">Tienes ' + pending.length + ' servicio' + (pending.length > 1 ? 's' : '') + ' sin registrar este mes</div></div>'
+      + '<div style="padding:16px 20px;overflow-y:auto;flex:1">' + listHtml + '</div>'
+      + '<div style="padding:12px 20px;border-top:1px solid ' + t.border + ';display:flex;gap:8px">'
+      + '<button class="dc-rbc-later" style="flex:1;padding:10px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.text + ';font-size:13px;font-weight:600;cursor:pointer">Recordar despu\u00e9s</button>'
+      + '<button class="dc-rbc-dismiss" style="flex:1;padding:10px;border-radius:10px;border:none;background:' + t.accent + ';color:#fff;font-size:13px;font-weight:600;cursor:pointer">Lo har\u00e9 luego</button></div>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    card.querySelector('.dc-rbc-later').addEventListener('click', function() { overlay.remove(); });
+    card.querySelector('.dc-rbc-dismiss').addEventListener('click', function() {
+      localStorage.setItem(LS_RECURRING_CHECKED, month + '_' + today);
+      overlay.remove();
+    });
+
+    card.querySelectorAll('.dc-rbc-item').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        var billId = el.getAttribute('data-id');
+        var bill = pending.find(function(b) { return b.id === billId; });
+        if (!bill) return;
+        var cat = RECURRING_CATEGORIES.find(function(c) { return c.id === bill.category; }) || RECURRING_CATEGORIES[RECURRING_CATEGORIES.length - 1];
+        var defVal = bill.estimatedAmount ? String(bill.estimatedAmount) : '';
+        var val = await dcPrompt('\uD83D\uDCB0 Monto de ' + bill.name + ' (' + getMonthLabel(month) + ')', {
+          icon: cat.icon, placeholder: '0.00', defaultValue: defVal, inputType: 'number'
+        });
+        if (val === null || val === '') return;
+        var amount = parseFloat(val);
+        if (isNaN(amount) || amount < 0) { showToast('\u26A0\uFE0F Monto inv\u00e1lido'); return; }
+        if (!records[billId]) records[billId] = {};
+        records[billId][month] = { amount: amount, date: new Date().toISOString() };
+        saveRecurringRecords(records);
+        showToast('\u2705 ' + bill.name + ': ' + getCurrency() + amount.toLocaleString());
+        // Actualizar visual: remover item del listado
+        el.style.opacity = '0.4';
+        el.style.pointerEvents = 'none';
+        el.querySelector('div:last-child').textContent = '\u2705';
+        el.querySelector('div:last-child').style.color = '#27ae60';
+        // Si ya no quedan pendientes, cerrar
+        var remaining = card.querySelectorAll('.dc-rbc-item:not([style*="opacity: 0.4"])');
+        if (remaining.length <= 1) {
+          setTimeout(function() { overlay.remove(); }, 800);
+        }
+      });
+    });
   }
 
   // ============================================================
@@ -3809,6 +4197,7 @@
       { icon: '\uD83D\uDCC5', label: 'Calendario de Pagos', action: showCalendar },
       { icon: '\uD83D\uDD14', label: 'Notificaciones', action: showNotificationConfig },
       { icon: '\uD83D\uDCB1', label: 'Moneda', action: showCurrencyConfig },
+      { icon: '\uD83D\uDD04', label: 'Pagos Recurrentes', action: showRecurringPayments },
       { sep: true },
       { header: '\uD83D\uDCCA Herramientas' },
       { icon: '\uD83D\uDCCA', label: 'Resumen Financiero', action: showFinancialSummary },
@@ -4033,6 +4422,9 @@
 
     // Verificar logros silenciosamente al iniciar
     setTimeout(function() { checkAndUnlockAchievements(true); }, 6000);
+
+    // Verificar pagos recurrentes pendientes del mes
+    setTimeout(checkRecurringPayments, 7000);
 
     console.log('[CloudSync] v' + SYNC_VERSION + ' | Firebase:', connected ? '\u2705' : '\u274C', '| Moneda:', getCurrency());
   }

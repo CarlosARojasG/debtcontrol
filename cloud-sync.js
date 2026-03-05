@@ -1,5 +1,5 @@
 ﻿/**
- * DebtControl Pro - Cloud Sync Module v7.1.0
+ * DebtControl Pro - Cloud Sync Module v7.2.0
  * SincronizaciÃ³n + herramientas financieras
  *
  * v7.0 cambios:
@@ -49,7 +49,7 @@
   // Constantes
   // ============================================================
   var SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
-  var SYNC_VERSION = '7.1.0';
+  var SYNC_VERSION = '7.2.0';
   var DB_URL_KEY = 'debtcontrol_guard_dburl';
   var LS_LEGACY_CONFIG = 'debtcontrol_firebase_config';
   var LS_SYNC_ID = 'debtcontrol_sync_id';
@@ -393,6 +393,7 @@
       data._recurringRecords = localStorage.getItem(LS_RECURRING_RECORDS) || '{}';
       data._achievements = localStorage.getItem(LS_ACHIEVEMENTS) || '[]';
       data._paidDebts = localStorage.getItem(LS_PAID_DEBTS) || '[]';
+      data._debtPlans = localStorage.getItem(LS_DEBT_PLANS) || '{}';
       var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
@@ -439,6 +440,7 @@
         if (data._recurringRecords) localStorage.setItem(LS_RECURRING_RECORDS, data._recurringRecords);
         if (data._achievements) localStorage.setItem(LS_ACHIEVEMENTS, data._achievements);
         if (data._paidDebts) localStorage.setItem(LS_PAID_DEBTS, data._paidDebts);
+        if (data._debtPlans) localStorage.setItem(LS_DEBT_PLANS, data._debtPlans);
         showToast('\u2705 Datos restaurados. Recargando...');
         setTimeout(function() { location.reload(); }, 1500);
       } catch (err) {
@@ -581,7 +583,8 @@
         recurringBills: localStorage.getItem(LS_RECURRING_BILLS) || '[]',
         recurringRecords: localStorage.getItem(LS_RECURRING_RECORDS) || '{}',
         achievements: localStorage.getItem(LS_ACHIEVEMENTS) || '[]',
-        paidDebts: localStorage.getItem(LS_PAID_DEBTS) || '[]'
+        paidDebts: localStorage.getItem(LS_PAID_DEBTS) || '[]',
+        debtPlans: localStorage.getItem(LS_DEBT_PLANS) || '{}'
       };
       var json = JSON.stringify({ data: data, lsData: lsData, ts: new Date().toISOString() });
       if (json.length < 2 * 1024 * 1024) {
@@ -609,6 +612,7 @@
         if (snapshot.lsData.recurringRecords) localStorage.setItem(LS_RECURRING_RECORDS, snapshot.lsData.recurringRecords);
         if (snapshot.lsData.achievements) localStorage.setItem(LS_ACHIEVEMENTS, snapshot.lsData.achievements);
         if (snapshot.lsData.paidDebts) localStorage.setItem(LS_PAID_DEBTS, snapshot.lsData.paidDebts);
+        if (snapshot.lsData.debtPlans) localStorage.setItem(LS_DEBT_PLANS, snapshot.lsData.debtPlans);
       }
       showToast('\u2705 Datos revertidos. Recargando...');
       setTimeout(function() { location.reload(); }, 1500);
@@ -2834,6 +2838,7 @@
       data._recurringRecords = localStorage.getItem(LS_RECURRING_RECORDS) || '{}';
       data._achievements = localStorage.getItem(LS_ACHIEVEMENTS) || '[]';
       data._paidDebts = localStorage.getItem(LS_PAID_DEBTS) || '[]';
+      data._debtPlans = localStorage.getItem(LS_DEBT_PLANS) || '{}';
       var payload = {
         _lastSync: new Date().toISOString(),
         _version: SYNC_VERSION,
@@ -2892,6 +2897,7 @@
       if (data._recurringRecords) localStorage.setItem(LS_RECURRING_RECORDS, data._recurringRecords);
       if (data._achievements) localStorage.setItem(LS_ACHIEVEMENTS, data._achievements);
       if (data._paidDebts) localStorage.setItem(LS_PAID_DEBTS, data._paidDebts);
+      if (data._debtPlans) localStorage.setItem(LS_DEBT_PLANS, data._debtPlans);
       logSyncEvent('download', true, 'Datos descargados correctamente');
       showToast('\u2705 Datos restaurados. Recargando...');
       setTimeout(function() { location.reload(); }, 1500);
@@ -4492,6 +4498,668 @@
     });
   }
 
+
+  // ============================================================
+  // Debt Enhancer - Plan de Pagos integrado en formulario
+  // ============================================================
+  var LS_DEBT_PLANS = 'debtcontrol_debt_plans';
+
+  function getDebtPlans() {
+    try { return JSON.parse(localStorage.getItem(LS_DEBT_PLANS)) || {}; } catch (e) { return {}; }
+  }
+
+  function saveDebtPlans(plans) {
+    localStorage.setItem(LS_DEBT_PLANS, JSON.stringify(plans));
+  }
+
+  function generateInstallments(config) {
+    var installments = [];
+    var startDate = new Date(config.startDate + 'T00:00:00');
+    var amount = config.installmentAmount;
+    var interestRate = config.interestRate || 0;
+    var balance = config.totalAmount;
+    var monthlyRate = interestRate / 100 / 12;
+
+    for (var i = 0; i < config.totalInstallments; i++) {
+      var dueDate = new Date(startDate);
+
+      if (config.frequency === 'weekly') {
+        dueDate.setDate(dueDate.getDate() + (i * 7));
+      } else if (config.frequency === 'biweekly') {
+        dueDate.setDate(dueDate.getDate() + (i * 14));
+      } else {
+        dueDate.setMonth(dueDate.getMonth() + i);
+      }
+
+      var interest = balance * monthlyRate;
+      var principal = amount - interest;
+      if (i === config.totalInstallments - 1) {
+        principal = balance;
+        amount = balance + interest;
+      }
+      if (principal < 0) principal = 0;
+
+      installments.push({
+        number: i + 1,
+        dueDate: dueDate.toISOString().split('T')[0],
+        amount: Math.round(amount * 100) / 100,
+        principal: Math.round(principal * 100) / 100,
+        interest: Math.round(interest * 100) / 100,
+        paid: false,
+        paidDate: null,
+        paidAmount: 0
+      });
+
+      balance -= principal;
+      if (balance < 0) balance = 0;
+    }
+    return installments;
+  }
+
+  function calcInstallmentAmount(total, months, annualRate) {
+    if (!annualRate || annualRate <= 0) return Math.round((total / months) * 100) / 100;
+    var r = annualRate / 100 / 12;
+    var pmt = total * (r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1);
+    return Math.round(pmt * 100) / 100;
+  }
+
+  // ============================================================
+  // Inyectar campos de Plan de Pagos en formulario React
+  // ============================================================
+  function initDebtFormEnhancer() {
+    var observer = new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var nodes = mutations[i].addedNodes;
+        for (var j = 0; j < nodes.length; j++) {
+          if (nodes[j].nodeType === 1) {
+            checkAndEnhanceForm(nodes[j]);
+            checkAndEnhanceCards(nodes[j]);
+          }
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function checkAndEnhanceForm(node) {
+    // Buscar el header de "Nueva Deuda" o "Editar Deuda"
+    var headers = node.querySelectorAll ? node.querySelectorAll('h2') : [];
+    var formHeader = null;
+    var isEdit = false;
+    for (var i = 0; i < headers.length; i++) {
+      var txt = headers[i].textContent || '';
+      if (txt.indexOf('Nueva Deuda') >= 0) { formHeader = headers[i]; break; }
+      if (txt.indexOf('Editar Deuda') >= 0) { formHeader = headers[i]; isEdit = true; break; }
+    }
+    if (!formHeader) {
+      // Check if node itself is h2
+      if (node.tagName === 'H2') {
+        var t = node.textContent || '';
+        if (t.indexOf('Nueva Deuda') >= 0) formHeader = node;
+        else if (t.indexOf('Editar Deuda') >= 0) { formHeader = node; isEdit = true; }
+      }
+    }
+    if (!formHeader) return;
+
+    // Buscar el form
+    var container = formHeader.closest ? formHeader.closest('div') : null;
+    if (!container) return;
+    var forms = container.querySelectorAll('form');
+    if (!forms || forms.length === 0) {
+      var parent = container.parentElement;
+      forms = parent ? parent.querySelectorAll('form') : [];
+    }
+    if (!forms || forms.length === 0) return;
+    var form = forms[forms.length - 1];
+
+    // evitar doble inyeccion
+    if (form.getAttribute('data-dc-enhanced')) return;
+    form.setAttribute('data-dc-enhanced', 'true');
+
+    // Esperar a que React renderice completamente
+    setTimeout(function() { injectPlanFields(form, isEdit); }, 200);
+  }
+
+  function injectPlanFields(form, isEdit) {
+    var t = getThemeColors();
+    var currency = getCurrency();
+
+    // Encontrar el campo de notas (textarea) para insertar antes de el
+    var textareas = form.querySelectorAll('textarea');
+    var insertBefore = null;
+    if (textareas.length > 0) {
+      insertBefore = textareas[textareas.length - 1].closest('div[style]');
+      if (insertBefore) insertBefore = insertBefore.parentElement ? insertBefore : null;
+    }
+    // Si no hay textarea, insertar antes de los botones
+    if (!insertBefore) {
+      var btns = form.querySelectorAll('button[type="submit"]');
+      if (btns.length > 0) insertBefore = btns[0].closest('div');
+    }
+
+    var planSection = document.createElement('div');
+    planSection.id = 'dc-plan-section';
+    planSection.style.cssText = 'margin-bottom:20px;border:1px solid ' + t.border + ';border-radius:12px;overflow:hidden';
+
+    var headerStyle = 'padding:14px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:' + t.inputBg;
+    planSection.innerHTML = '<div class="dc-plan-header" style="' + headerStyle + '">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span style="font-size:18px">\uD83D\uDCC5</span>'
+      + '<span style="font-weight:600;font-size:15px;color:' + t.txt + '">Plan de Pagos</span>'
+      + '</div>'
+      + '<label style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="event.stopPropagation()">'
+      + '<span style="font-size:12px;color:' + t.muted + '">Activar</span>'
+      + '<input type="checkbox" id="dc-plan-enabled" style="width:18px;height:18px;accent-color:#007AFF">'
+      + '</label>'
+      + '</div>'
+      + '<div id="dc-plan-body" style="display:none;padding:16px;border-top:1px solid ' + t.border + '">'
+
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">'
+      + '<div>'
+      + '<label style="display:block;margin-bottom:6px;color:' + t.txt + ';font-weight:500;font-size:13px">N\u00BA de Pagos *</label>'
+      + '<input type="number" id="dc-plan-installments" min="2" max="360" value="12" style="width:100%;padding:12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.bg + ';color:' + t.txt + ';font-size:15px;box-sizing:border-box">'
+      + '</div>'
+      + '<div>'
+      + '<label style="display:block;margin-bottom:6px;color:' + t.txt + ';font-weight:500;font-size:13px">Frecuencia</label>'
+      + '<select id="dc-plan-frequency" style="width:100%;padding:12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.bg + ';color:' + t.txt + ';font-size:15px;box-sizing:border-box">'
+      + '<option value="monthly">Mensual</option>'
+      + '<option value="biweekly">Quincenal</option>'
+      + '<option value="weekly">Semanal</option>'
+      + '</select>'
+      + '</div>'
+      + '</div>'
+
+      + '<div style="margin-bottom:12px">'
+      + '<label style="display:block;margin-bottom:6px;color:' + t.txt + ';font-weight:500;font-size:13px">Fecha Primer Pago *</label>'
+      + '<input type="date" id="dc-plan-start" style="width:100%;padding:12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.bg + ';color:' + t.txt + ';font-size:15px;box-sizing:border-box">'
+      + '</div>'
+
+      + '<div id="dc-plan-preview" style="background:' + t.inputBg + ';border-radius:10px;padding:14px;margin-top:12px;display:none">'
+      + '<div style="font-size:13px;font-weight:600;color:' + t.txt + ';margin-bottom:8px">\uD83D\uDCCA Vista Previa</div>'
+      + '<div id="dc-plan-preview-content"></div>'
+      + '</div>'
+
+      + '</div>';
+
+    if (insertBefore && insertBefore.parentNode === form) {
+      form.insertBefore(planSection, insertBefore);
+    } else {
+      // Insertar antes del ultimo div (botones)
+      var children = form.children;
+      if (children.length > 1) {
+        form.insertBefore(planSection, children[children.length - 1]);
+      } else {
+        form.appendChild(planSection);
+      }
+    }
+
+    // Event handlers
+    var toggle = planSection.querySelector('#dc-plan-enabled');
+    var body = planSection.querySelector('#dc-plan-body');
+    var instInput = planSection.querySelector('#dc-plan-installments');
+    var freqInput = planSection.querySelector('#dc-plan-frequency');
+    var startInput = planSection.querySelector('#dc-plan-start');
+
+    // Default start date: tomorrow
+    var tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    startInput.value = tomorrow.toISOString().split('T')[0];
+
+    toggle.addEventListener('change', function() {
+      body.style.display = toggle.checked ? 'block' : 'none';
+      if (toggle.checked) updatePlanPreview();
+    });
+
+    // Auto-update preview
+    [instInput, freqInput, startInput].forEach(function(el) {
+      el.addEventListener('change', updatePlanPreview);
+      el.addEventListener('input', updatePlanPreview);
+    });
+
+    // Also listen to amount and interestRate fields in the React form
+    var amountInputs = form.querySelectorAll('input[type="number"]');
+    amountInputs.forEach(function(inp) {
+      inp.addEventListener('input', function() {
+        setTimeout(updatePlanPreview, 100);
+      });
+    });
+
+    function getFormValues() {
+      var amount = 0;
+      var rate = 0;
+      var numInputs = form.querySelectorAll('input[type="number"]');
+      // First number input is amount, second is interest rate (by React form order)
+      if (numInputs.length >= 1) amount = parseFloat(numInputs[0].value) || 0;
+      if (numInputs.length >= 2) rate = parseFloat(numInputs[numInputs.length - 1].value) || 0;
+      return { amount: amount, rate: rate };
+    }
+
+    function updatePlanPreview() {
+      if (!toggle.checked) return;
+      var preview = planSection.querySelector('#dc-plan-preview');
+      var content = planSection.querySelector('#dc-plan-preview-content');
+      var vals = getFormValues();
+      var months = parseInt(instInput.value) || 0;
+
+      if (vals.amount <= 0 || months < 2) {
+        preview.style.display = 'none';
+        return;
+      }
+
+      var pmt = calcInstallmentAmount(vals.amount, months, vals.rate);
+      var totalPaid = pmt * months;
+      var totalInterest = totalPaid - vals.amount;
+      var freqLabel = freqInput.value === 'weekly' ? 'semanal' : freqInput.value === 'biweekly' ? 'quincenal' : 'mensual';
+
+      preview.style.display = 'block';
+      content.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">'
+        + '<div style="color:' + t.muted + '">Pago ' + freqLabel + ':</div>'
+        + '<div style="font-weight:700;color:#007AFF;text-align:right">' + currency + formatNumber(pmt) + '</div>'
+        + '<div style="color:' + t.muted + '">Total a pagar:</div>'
+        + '<div style="font-weight:600;text-align:right;color:' + t.txt + '">' + currency + formatNumber(totalPaid) + '</div>'
+        + (totalInterest > 0 ? '<div style="color:' + t.muted + '">Inter\u00e9s total:</div>'
+        + '<div style="font-weight:600;text-align:right;color:#FF3B30">' + currency + formatNumber(totalInterest) + '</div>' : '')
+        + '<div style="color:' + t.muted + '">Primer pago:</div>'
+        + '<div style="text-align:right;color:' + t.txt + '">' + (startInput.value ? new Date(startInput.value + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '-') + '</div>'
+        + '</div>';
+    }
+
+    // Hook form submission
+    form.addEventListener('submit', function() {
+      if (!toggle.checked) return;
+
+      var vals = getFormValues();
+      var months = parseInt(instInput.value) || 12;
+      var pmt = calcInstallmentAmount(vals.amount, months, vals.rate);
+
+      var planConfig = {
+        enabled: true,
+        totalInstallments: months,
+        frequency: freqInput.value,
+        startDate: startInput.value,
+        installmentAmount: pmt,
+        totalAmount: vals.amount,
+        interestRate: vals.rate,
+        createdAt: new Date().toISOString()
+      };
+      planConfig.installments = generateInstallments(planConfig);
+
+      // Guardar temporalmente, se asociara al debt despues
+      window._dcPendingPlan = planConfig;
+
+      // Observar localforage para capturar el debt ID
+      setTimeout(function() { associatePlanToDebt(planConfig); }, 500);
+    });
+
+    // Si estamos editando, cargar plan existente
+    if (isEdit) {
+      setTimeout(function() { loadExistingPlan(form, toggle, instInput, freqInput, startInput, body); }, 400);
+    }
+  }
+
+  async function associatePlanToDebt(planConfig) {
+    var lf = getLocalForage();
+    if (!lf) return;
+
+    // Leer debts y encontrar la mas reciente
+    var debts = await lf.getItem('debts') || [];
+    if (debts.length === 0) return;
+
+    // Ordenar por createdAt o id para encontrar la ultima
+    var sorted = debts.slice().sort(function(a, b) {
+      var ta = a.createdAt || a.id || '';
+      var tb = b.createdAt || b.id || '';
+      return ta > tb ? -1 : 1;
+    });
+
+    var newestDebt = sorted[0];
+    if (!newestDebt || !newestDebt.id) return;
+
+    var plans = getDebtPlans();
+    plans[newestDebt.id] = planConfig;
+    saveDebtPlans(plans);
+
+    // Actualizar el remainingAmount basado en el plan
+    showToast('\uD83D\uDCC5 Plan de ' + planConfig.totalInstallments + ' pagos creado');
+  }
+
+  function loadExistingPlan(form, toggle, instInput, freqInput, startInput, body) {
+    // Intentar encontrar el debt que se esta editando
+    var creditorInput = form.querySelector('input[type="text"]');
+    if (!creditorInput) return;
+    var creditor = creditorInput.value;
+
+    var plans = getDebtPlans();
+    var lf = getLocalForage();
+    if (!lf) return;
+
+    lf.getItem('debts').then(function(debts) {
+      if (!debts) return;
+      var debt = debts.find(function(d) { return d.creditor === creditor; });
+      if (!debt || !plans[debt.id]) return;
+
+      var plan = plans[debt.id];
+      toggle.checked = true;
+      body.style.display = 'block';
+      instInput.value = plan.totalInstallments || 12;
+      freqInput.value = plan.frequency || 'monthly';
+      if (plan.startDate) startInput.value = plan.startDate;
+    });
+  }
+
+  // ============================================================
+  // Inyectar tracker de cuotas en tarjetas de deudas React
+  // ============================================================
+  function checkAndEnhanceCards(node) {
+    // Buscar el header "Mis Deudas"
+    var allText = node.textContent || '';
+    if (allText.indexOf('Mis Deudas') < 0 && allText.indexOf('Pendiente') < 0) return;
+
+    setTimeout(function() { enhanceVisibleDebtCards(); }, 300);
+  }
+
+  async function enhanceVisibleDebtCards() {
+    var plans = getDebtPlans();
+    if (Object.keys(plans).length === 0) return;
+
+    var lf = getLocalForage();
+    if (!lf) return;
+    var debts = await lf.getItem('debts') || [];
+
+    // Buscar tarjetas de deuda en el DOM
+    var cards = document.querySelectorAll('div[style*="borderLeft"][style*="borderRadius"]');
+    cards.forEach(function(card) {
+      if (card.getAttribute('data-dc-plan-injected')) return;
+
+      // Encontrar creditor name en la tarjeta
+      var nameEl = card.querySelector('div[style*="fontWeight"][style*="700"][style*="18px"]');
+      if (!nameEl) return;
+      var creditorName = nameEl.textContent.trim();
+
+      // Buscar debt que coincida
+      var debt = debts.find(function(d) { return d.creditor === creditorName; });
+      if (!debt || !plans[debt.id]) return;
+
+      var plan = plans[debt.id];
+      card.setAttribute('data-dc-plan-injected', 'true');
+
+      injectInstallmentTracker(card, debt, plan);
+    });
+  }
+
+  function injectInstallmentTracker(card, debt, plan) {
+    var t = getThemeColors();
+    var currency = getCurrency();
+    var inst = plan.installments || [];
+    var paidCount = inst.filter(function(p) { return p.paid; }).length;
+    var total = inst.length;
+    var pct = total > 0 ? Math.round((paidCount / total) * 100) : 0;
+
+    // Encontrar proxima cuota pendiente
+    var today = new Date().toISOString().split('T')[0];
+    var nextInst = inst.find(function(p) { return !p.paid; });
+    var overdueCount = inst.filter(function(p) { return !p.paid && p.dueDate < today; }).length;
+
+    var freqLabel = plan.frequency === 'weekly' ? 'semanales' : plan.frequency === 'biweekly' ? 'quincenales' : 'mensuales';
+
+    var tracker = document.createElement('div');
+    tracker.style.cssText = 'margin-top:12px;padding:10px 12px;border-radius:10px;background:' + (t.isDark ? 'rgba(0,122,255,0.1)' : 'rgba(0,122,255,0.06)') + ';border:1px solid ' + (t.isDark ? 'rgba(0,122,255,0.2)' : 'rgba(0,122,255,0.12)');
+    tracker.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+      + '<div style="font-size:12px;font-weight:600;color:#007AFF">\uD83D\uDCC5 Plan: ' + total + ' pagos ' + freqLabel + '</div>'
+      + '<div style="font-size:12px;font-weight:700;color:' + (pct === 100 ? '#34C759' : '#007AFF') + '">' + paidCount + '/' + total + '</div>'
+      + '</div>'
+      // Barra de progreso de cuotas
+      + '<div style="background:' + t.border + ';border-radius:4px;height:6px;overflow:hidden;margin-bottom:6px">'
+      + '<div style="width:' + pct + '%;height:100%;background:linear-gradient(90deg,#007AFF,#5856D6);border-radius:4px;transition:width 0.3s"></div>'
+      + '</div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center">'
+      + (nextInst
+        ? '<div style="font-size:11px;color:' + (overdueCount > 0 ? '#FF3B30' : t.muted) + '">'
+          + (overdueCount > 0 ? '\u26A0\uFE0F ' + overdueCount + ' vencida' + (overdueCount > 1 ? 's' : '') + ' \u2022 ' : '')
+          + 'Pr\u00f3ximo: ' + new Date(nextInst.dueDate + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+          + ' \u2022 ' + currency + formatNumber(nextInst.amount) + '</div>'
+        : '<div style="font-size:11px;color:#34C759;font-weight:600">\u2705 Todas las cuotas pagadas</div>')
+      + '<button class="dc-view-plan-btn" style="font-size:11px;padding:4px 10px;border-radius:8px;border:none;background:#007AFF;color:#fff;cursor:pointer;font-weight:600">Ver Plan</button>'
+      + '</div>';
+
+    card.appendChild(tracker);
+
+    // Click handler para ver plan completo
+    tracker.querySelector('.dc-view-plan-btn').addEventListener('click', function(e) {
+      e.stopPropagation();
+      showInstallmentManager(debt.id);
+    });
+  }
+
+  // ============================================================
+  // Gestor de Cuotas - Vista completa del plan de pagos
+  // ============================================================
+  function showInstallmentManager(debtId) {
+    var plans = getDebtPlans();
+    var plan = plans[debtId];
+    if (!plan) { showToast('No hay plan de pagos para esta deuda'); return; }
+
+    var t = getThemeColors();
+    var currency = getCurrency();
+
+    var overlay = document.createElement('div');
+    overlay.className = 'dc-modal-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.5)',
+      zIndex: '10001', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '16px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    });
+
+    function render() {
+      var inst = plan.installments || [];
+      var paidCount = inst.filter(function(p) { return p.paid; }).length;
+      var paidAmount = inst.filter(function(p) { return p.paid; }).reduce(function(s, p) { return s + (p.paidAmount || p.amount); }, 0);
+      var totalAmount = inst.reduce(function(s, p) { return s + p.amount; }, 0);
+      var pct = inst.length > 0 ? Math.round((paidCount / inst.length) * 100) : 0;
+      var today = new Date().toISOString().split('T')[0];
+      var freqLabel = plan.frequency === 'weekly' ? 'Semanal' : plan.frequency === 'biweekly' ? 'Quincenal' : 'Mensual';
+
+      var html = '<div style="background:' + t.bg + ';border-radius:20px;width:100%;max-width:440px;max-height:85vh;overflow-y:auto;color:' + t.txt + '">'
+        // Header
+        + '<div style="padding:20px 20px 16px;border-bottom:1px solid ' + t.border + '">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center">'
+        + '<div style="font-size:18px;font-weight:700">\uD83D\uDCC5 Plan de Pagos</div>'
+        + '<button class="dc-close-plan" style="background:' + t.inputBg + ';border:none;border-radius:10px;width:32px;height:32px;cursor:pointer;font-size:16px;color:' + t.txt + '">\u2715</button>'
+        + '</div>'
+        + '<div style="font-size:13px;color:' + t.muted + ';margin-top:4px">' + freqLabel + ' \u2022 ' + inst.length + ' cuotas</div>'
+        + '</div>'
+
+        // Stats
+        + '<div style="padding:16px 20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
+        + '<div style="text-align:center;padding:10px;background:' + t.inputBg + ';border-radius:12px">'
+        + '<div style="font-size:20px;font-weight:700;color:#007AFF">' + paidCount + '/' + inst.length + '</div>'
+        + '<div style="font-size:11px;color:' + t.muted + '">Cuotas</div></div>'
+        + '<div style="text-align:center;padding:10px;background:' + t.inputBg + ';border-radius:12px">'
+        + '<div style="font-size:20px;font-weight:700;color:#34C759">' + pct + '%</div>'
+        + '<div style="font-size:11px;color:' + t.muted + '">Progreso</div></div>'
+        + '<div style="text-align:center;padding:10px;background:' + t.inputBg + ';border-radius:12px">'
+        + '<div style="font-size:15px;font-weight:700;color:' + t.txt + '">' + currency + formatNumber(totalAmount - paidAmount) + '</div>'
+        + '<div style="font-size:11px;color:' + t.muted + '">Restante</div></div>'
+        + '</div>'
+
+        // Progress bar
+        + '<div style="padding:0 20px 16px">'
+        + '<div style="background:' + t.border + ';border-radius:6px;height:8px;overflow:hidden">'
+        + '<div style="width:' + pct + '%;height:100%;background:linear-gradient(90deg,#34C759,#32D74B);border-radius:6px;transition:width 0.3s"></div>'
+        + '</div></div>'
+
+        // Installment list
+        + '<div style="padding:0 20px 20px">';
+
+      inst.forEach(function(item, idx) {
+        var isOverdue = !item.paid && item.dueDate < today;
+        var isCurrent = !item.paid && !isOverdue && (idx === 0 || inst[idx - 1].paid || inst.slice(0, idx).every(function(p) { return p.paid; }) || item.dueDate <= today);
+        var borderColor = item.paid ? '#34C759' : isOverdue ? '#FF3B30' : isCurrent ? '#007AFF' : t.border;
+        var bgColor = item.paid ? (t.isDark ? 'rgba(52,199,89,0.08)' : 'rgba(52,199,89,0.04)') :
+          isOverdue ? (t.isDark ? 'rgba(255,59,48,0.08)' : 'rgba(255,59,48,0.04)') :
+          isCurrent ? (t.isDark ? 'rgba(0,122,255,0.08)' : 'rgba(0,122,255,0.04)') : t.inputBg;
+
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;border-radius:10px;background:' + bgColor + ';border-left:3px solid ' + borderColor + '">'
+          + '<div style="flex-shrink:0;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;'
+          + (item.paid ? 'background:#34C759;color:#fff' : isOverdue ? 'background:#FF3B30;color:#fff' : 'background:' + t.inputBg + ';color:' + t.muted) + '">'
+          + (item.paid ? '\u2713' : item.number) + '</div>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center">'
+          + '<div style="font-size:13px;font-weight:600;color:' + t.txt + '">Cuota ' + item.number + '</div>'
+          + '<div style="font-size:14px;font-weight:700;color:' + (item.paid ? '#34C759' : isOverdue ? '#FF3B30' : t.txt) + '">' + currency + formatNumber(item.amount) + '</div>'
+          + '</div>'
+          + '<div style="font-size:11px;color:' + t.muted + ';margin-top:2px">'
+          + new Date(item.dueDate + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })
+          + (item.paid && item.paidDate ? ' \u2022 Pagada: ' + new Date(item.paidDate + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }) : '')
+          + (isOverdue ? ' \u2022 \u26A0\uFE0F Vencida' : '')
+          + '</div></div>';
+
+        if (!item.paid) {
+          html += '<button class="dc-pay-inst" data-idx="' + idx + '" style="flex-shrink:0;padding:6px 12px;border-radius:8px;border:none;background:#34C759;color:#fff;font-size:11px;font-weight:600;cursor:pointer">Pagar</button>';
+        }
+
+        html += '</div>';
+      });
+
+      // Delete plan button
+      html += '<div style="margin-top:16px;padding-top:16px;border-top:1px solid ' + t.border + ';display:flex;gap:8px">'
+        + '<button class="dc-delete-plan" style="flex:1;padding:10px;border-radius:10px;border:1px solid #FF3B30;background:transparent;color:#FF3B30;font-size:13px;font-weight:600;cursor:pointer">\uD83D\uDDD1\uFE0F Eliminar Plan</button>'
+        + '</div>';
+
+      html += '</div></div>';
+      overlay.innerHTML = html;
+
+      // Event handlers
+      overlay.querySelector('.dc-close-plan').addEventListener('click', function() { overlay.remove(); });
+
+      overlay.querySelectorAll('.dc-pay-inst').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var idx = parseInt(btn.getAttribute('data-idx'));
+          markInstallmentPaid(debtId, idx, overlay, render);
+        });
+      });
+
+      var deleteBtn = overlay.querySelector('.dc-delete-plan');
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', function() {
+          dcConfirm('\u00bfEliminar el plan de pagos de esta deuda?').then(function(ok) {
+            if (!ok) return;
+            var p = getDebtPlans();
+            delete p[debtId];
+            saveDebtPlans(p);
+            overlay.remove();
+            showToast('Plan eliminado');
+          });
+        });
+      }
+    }
+
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+    render();
+  }
+
+  async function markInstallmentPaid(debtId, instIdx, overlay, renderFn) {
+    var plans = getDebtPlans();
+    var plan = plans[debtId];
+    if (!plan || !plan.installments[instIdx]) return;
+
+    var inst = plan.installments[instIdx];
+    inst.paid = true;
+    inst.paidDate = new Date().toISOString().split('T')[0];
+    inst.paidAmount = inst.amount;
+    saveDebtPlans(plans);
+
+    // Actualizar remainingAmount en el debt de localForage
+    var lf = getLocalForage();
+    if (lf) {
+      var debts = await lf.getItem('debts') || [];
+      var debt = debts.find(function(d) { return d.id === debtId; });
+      if (debt) {
+        var totalPaid = plan.installments
+          .filter(function(p) { return p.paid; })
+          .reduce(function(s, p) { return s + (p.paidAmount || p.amount); }, 0);
+        debt.remainingAmount = Math.max(0, debt.amount - totalPaid);
+        debt.paidAmount = totalPaid;
+
+        // Si todas pagadas, marcar como paid
+        var allPaid = plan.installments.every(function(p) { return p.paid; });
+        if (allPaid) {
+          debt.status = 'paid';
+          debt.paidDate = new Date().toISOString().split('T')[0];
+        }
+        await lf.setItem('debts', debts);
+      }
+    }
+
+    // Verificar logros
+    setTimeout(function() { checkAndUnlockAchievements(true); }, 500);
+
+    showToast('\u2705 Cuota ' + (instIdx + 1) + ' pagada');
+    renderFn();
+  }
+
+  // ============================================================
+  // Herramientas contextuales en vista de deudas
+  // ============================================================
+  function injectDebtToolsBar() {
+    var observer = new MutationObserver(function() {
+      var headers = document.querySelectorAll('h2');
+      for (var i = 0; i < headers.length; i++) {
+        var txt = headers[i].textContent || '';
+        if (txt.indexOf('Mis Deudas') >= 0) {
+          var container = headers[i].closest('div');
+          if (container && !container.getAttribute('data-dc-tools-injected')) {
+            container.setAttribute('data-dc-tools-injected', 'true');
+            addToolsToDebtsView(container);
+          }
+          break;
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function addToolsToDebtsView(headerContainer) {
+    var t = getThemeColors();
+    var toolsBar = document.createElement('div');
+    toolsBar.style.cssText = 'padding:8px 20px 4px;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none';
+
+    var tools = [
+      { icon: '\uD83D\uDCCA', label: 'Resumen', action: showFinancialSummary },
+      { icon: '\uD83E\uDDEE', label: 'Amortizaci\u00f3n', action: showAmortizationCalc },
+      { icon: '\u2696\uFE0F', label: 'Estrategia', action: showDebtStrategy },
+      { icon: '\uD83D\uDCC9', label: 'Ratio DTI', action: showDTICalculator },
+      { icon: '\uD83C\uDFC1', label: 'Libre de Deudas', action: showDebtFreeDate },
+      { icon: '\u2705', label: 'Liquidar', action: showMarkDebtPaid },
+      { icon: '\uD83D\uDCCB', label: 'Historial', action: showDebtHistory }
+    ];
+
+    tools.forEach(function(tool) {
+      var btn = document.createElement('button');
+      btn.style.cssText = 'flex-shrink:0;padding:6px 12px;border-radius:16px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';cursor:pointer;display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;color:' + t.txt + ';white-space:nowrap';
+      btn.innerHTML = tool.icon + ' ' + tool.label;
+      btn.addEventListener('click', function() {
+        if (navigator.vibrate) navigator.vibrate(10);
+        tool.action();
+      });
+      toolsBar.appendChild(btn);
+    });
+
+    // Insertar despues del header y filtros de categoria
+    var parent = headerContainer.parentElement;
+    if (parent) {
+      var siblings = parent.children;
+      // Insertar despues del segundo hijo (header + category filters)
+      if (siblings.length >= 2) {
+        parent.insertBefore(toolsBar, siblings[2]);
+      } else {
+        parent.insertBefore(toolsBar, siblings[1] || null);
+      }
+    }
+  }
+
   // ============================================================
   // Init
   // ============================================================
@@ -4515,6 +5183,8 @@
     setupAutoBackup();
     setupAutoSync();
     applyCurrencyToDOM();
+    initDebtFormEnhancer();
+    injectDebtToolsBar();
 
     // Verificar vencimientos
     setTimeout(checkDueDates, 5000);

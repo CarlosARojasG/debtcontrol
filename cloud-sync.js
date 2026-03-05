@@ -1,5 +1,5 @@
 ﻿/**
- * DebtControl Pro - Cloud Sync Module v7.2.0
+ * DebtControl Pro - Cloud Sync Module v7.2.1
  * SincronizaciÃ³n + herramientas financieras
  *
  * v7.0 cambios:
@@ -49,7 +49,7 @@
   // Constantes
   // ============================================================
   var SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
-  var SYNC_VERSION = '7.2.0';
+  var SYNC_VERSION = '7.2.1';
   var DB_URL_KEY = 'debtcontrol_guard_dburl';
   var LS_LEGACY_CONFIG = 'debtcontrol_firebase_config';
   var LS_SYNC_ID = 'debtcontrol_sync_id';
@@ -271,6 +271,9 @@
     };
   }
 
+  // Nombre de deuda: React usa 'creditor', cloud-sync legacy usa 'name'/'nombre'
+  function dn(d) { return d.creditor || d.name || d.nombre || ''; }
+
   function createModalOverlay() {
     var overlay = document.createElement('div');
     overlay.className = 'dc-modal-overlay';
@@ -466,7 +469,7 @@
         lines.push('Nombre,Monto,Categor\u00eda,Tasa Inter\u00e9s,Cuota Mensual,Vencimiento');
         debts.forEach(function(d) {
           lines.push([
-            '"' + (d.name || d.nombre || '').replace(/"/g, '""') + '"',
+            '"' + dn(d).replace(/"/g, '""') + '"',
             parseFloat(d.amount || d.totalAmount || d.monto || 0),
             '"' + (d.category || d.categoria || '').replace(/"/g, '""') + '"',
             parseFloat(d.interestRate || d.tasaInteres || 0),
@@ -1046,7 +1049,7 @@
       if (!categories[cat]) categories[cat] = { total: 0, count: 0, debts: [] };
       categories[cat].total += amount;
       categories[cat].count++;
-      categories[cat].debts.push({ name: d.name || d.nombre || 'Deuda', amount: amount });
+      categories[cat].debts.push({ name: dn(d) || 'Deuda', amount: amount });
     });
 
     // Ordenar por total descendiente
@@ -1157,7 +1160,7 @@
     if (overdueDebts.length > 0) {
       debtOptions += '<optgroup label="\u26A0\uFE0F Deudas Vencidas (' + overdueDebts.length + ')">';
       overdueDebts.forEach(function(e) {
-        var name = escapeAttr(e.debt.name || e.debt.nombre || 'Deuda ' + (e.idx + 1));
+        var name = escapeAttr(dn(e.debt) || 'Deuda ' + (e.idx + 1));
         var amt = parseFloat(e.debt.amount || e.debt.totalAmount || e.debt.monto || 0);
         debtOptions += '<option value="' + e.idx + '">\u26A0\uFE0F ' + name + ' (' + currency + formatNumber(amt) + ') - ' + e.daysLate + 'd retraso</option>';
       });
@@ -1166,7 +1169,7 @@
     if (currentDebts.length > 0) {
       debtOptions += '<optgroup label="\u2705 Deudas al Corriente (' + currentDebts.length + ')">';
       currentDebts.forEach(function(e) {
-        var name = escapeAttr(e.debt.name || e.debt.nombre || 'Deuda ' + (e.idx + 1));
+        var name = escapeAttr(dn(e.debt) || 'Deuda ' + (e.idx + 1));
         var amt = parseFloat(e.debt.amount || e.debt.totalAmount || e.debt.monto || 0);
         debtOptions += '<option value="' + e.idx + '">' + name + ' (' + currency + formatNumber(amt) + ')</option>';
       });
@@ -1184,7 +1187,7 @@
         + '<div><div style="font-size:13px;font-weight:700;color:#FF3B30">Cuentas Pendientes Vencidas</div>'
         + '<div style="font-size:11px;color:' + t.muted + '">' + overdueDebts.length + ' deuda' + (overdueDebts.length !== 1 ? 's' : '') + ' \u2022 Total: <b style="color:#FF3B30">' + currency + formatNumber(totalOverdue) + '</b></div></div></div>';
       overdueDebts.forEach(function(e) {
-        var name = e.debt.name || e.debt.nombre || 'Deuda';
+        var name = dn(e.debt) || 'Deuda';
         var amt = parseFloat(e.debt.amount || e.debt.totalAmount || e.debt.monto || 0);
         var dueDate = e.dueStr ? new Date(e.dueStr).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
         overduePanel += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-top:4px;background:' + t.bg + ';border-radius:8px;font-size:12px">'
@@ -1315,7 +1318,7 @@
         debtName = card.querySelector('.dc-pa-manual-name').value || 'Deuda';
       } else if (debtSelect.value !== '') {
         var selDebt = debts[parseInt(debtSelect.value)];
-        debtName = selDebt.name || selDebt.nombre || 'Deuda';
+        debtName = dn(selDebt) || 'Deuda';
       } else {
         debtName = 'Deuda';
       }
@@ -1659,7 +1662,7 @@
     // Select de deudas activas
     var debtOptions = '<option value="">-- Selecciona la deuda liquidada --</option>';
     debts.forEach(function(d, idx) {
-      var name = escapeAttr(d.name || d.nombre || 'Deuda ' + (idx + 1));
+      var name = escapeAttr(dn(d) || 'Deuda ' + (idx + 1));
       var amt = parseFloat(d.amount || d.totalAmount || d.monto || 0);
       debtOptions += '<option value="active_' + idx + '">' + name + ' (' + currency + formatNumber(amt) + ')</option>';
     });
@@ -1742,7 +1745,7 @@
         var idx = parseInt(selVal.replace('active_', ''));
         var debt = debts[idx];
         if (!debt) { showToast('\u26A0\uFE0F Deuda no encontrada'); return; }
-        entry.name = debt.name || debt.nombre || 'Deuda';
+        entry.name = dn(debt) || 'Deuda';
         entry.amount = parseFloat(debt.amount || debt.totalAmount || debt.monto || 0);
         entry.category = debt.category || debt.categoria || '';
         entry.historic = false;
@@ -1923,13 +1926,13 @@
       }
       // Pagos asociados
       var debtPayments = payments.filter(function(p) {
-        return p.debtId === d.id || p.debtName === (d.name || d.nombre);
+        return p.debtId === d.id || p.debtName === dn(d);
       });
       var totalPaid = debtPayments.reduce(function(s, p) { return s + parseFloat(p.amount || p.monto || 0); }, 0);
       var pct = amount > 0 ? Math.min((totalPaid / amount) * 100, 100) : 0;
 
       allDebts.push({
-        name: d.name || d.nombre || 'Deuda',
+        name: dn(d) || 'Deuda',
         amount: amount,
         category: d.category || d.categoria || '',
         lender: d.lender || d.acreedor || d.bank || d.banco || d.institution || d.entidad || d.company || d.empresa || '',
@@ -2678,7 +2681,7 @@
         y += 5;
         debts.forEach(function(d) {
           y = checkPageBreak(doc, y, 8);
-          var name = (d.name || d.nombre || d.description || 'Sin nombre').substring(0, 30);
+          var name = (dn(d) || d.description || 'Sin nombre').substring(0, 30);
           var amount = currency + formatNumber(parseFloat(d.amount || d.totalAmount || d.monto || 0));
           var cat = (d.category || d.categoria || '-').substring(0, 15);
           var due = d.dueDate || d.fechaVencimiento || d.nextPaymentDate || '-';
@@ -3054,7 +3057,7 @@
       var debtId = d.id || d.nombre || d.name || dueStr;
       if (alreadyNotified.indexOf(debtId) !== -1) return;
 
-      var name = d.name || d.nombre || d.description || 'Deuda';
+      var name = dn(d) || d.description || 'Deuda';
       var amount = getCurrency() + formatNumber(parseFloat(d.monthlyPayment || d.cuota || d.amount || d.monto || 0));
 
       if (diffDays === 0) {
@@ -3232,11 +3235,11 @@
           if (!events[day]) events[day] = [];
           var isPaid = payments.some(function(p) {
             var pDate = new Date(p.date || p.fecha || '');
-            return (p.debtId === d.id || p.debtName === d.name) &&
+            return (p.debtId === d.id || p.debtName === dn(d)) &&
                    pDate.getMonth() === month && pDate.getFullYear() === year;
           });
           events[day].push({
-            name: d.name || d.nombre || 'Deuda',
+            name: dn(d) || 'Deuda',
             amount: parseFloat(d.monthlyPayment || d.cuota || d.amount || d.monto || 0),
             paid: isPaid,
             overdue: due < today && !isPaid,
@@ -3819,7 +3822,7 @@
       if (!dueStr) return;
       var due = new Date(dueStr); due.setHours(0, 0, 0, 0);
       if (due >= now && (!nextDue || due < nextDue.date)) {
-        nextDue = { date: due, name: d.name || d.nombre || 'Deuda', amount: parseFloat(d.monthlyPayment || d.cuota || d.amount || d.monto || 0) };
+        nextDue = { date: due, name: dn(d) || 'Deuda', amount: parseFloat(d.monthlyPayment || d.cuota || d.amount || d.monto || 0) };
       }
     });
 
@@ -3871,11 +3874,11 @@
     if (debts.length > 0) {
       var progressHtml = '<div style="margin-top:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">\uD83D\uDCC8 Progreso por Deuda</div>';
       debts.forEach(function(d) {
-        var name = d.name || d.nombre || 'Deuda';
+        var name = dn(d) || 'Deuda';
         var total = parseFloat(d.amount || d.totalAmount || d.monto || 0);
         if (total <= 0) return;
         var debtPayments = payments.filter(function(p) {
-          return p.debtId === d.id || p.debtName === (d.name || d.nombre);
+          return p.debtId === d.id || p.debtName === dn(d);
         });
         var paid = debtPayments.reduce(function(s, p) { return s + parseFloat(p.amount || p.monto || 0); }, 0);
         var pct = Math.min((paid / total) * 100, 100);
@@ -4031,7 +4034,7 @@
     }
 
     var debtsHtml = debts.map(function(d, idx) {
-      var name = d.name || d.nombre || 'Deuda ' + (idx + 1);
+      var name = dn(d) || 'Deuda ' + (idx + 1);
       var amount = parseFloat(d.amount || d.totalAmount || d.monto || 0);
       var rate = parseFloat(d.interestRate || d.tasaInteres || 0);
       var minPay = parseFloat(d.monthlyPayment || d.cuota || d.minimumPayment || 0);
@@ -4062,7 +4065,7 @@
       var extra = parseFloat(card.querySelector('.dc-strat-extra').value) || 0;
       var debtList = debts.map(function(d) {
         return {
-          name: d.name || d.nombre || 'Deuda',
+          name: dn(d) || 'Deuda',
           balance: parseFloat(d.amount || d.totalAmount || d.monto || 0),
           rate: parseFloat(d.interestRate || d.tasaInteres || 0),
           minPayment: parseFloat(d.monthlyPayment || d.cuota || d.minimumPayment || 0) || parseFloat(d.amount || d.totalAmount || d.monto || 0) * 0.03
@@ -4133,8 +4136,13 @@
   // ============================================================
   async function showBiometricConfig() {
     var guard = window.DebtControlGuard;
-    if (!guard || !guard.isWebAuthnAvailable || !guard.isWebAuthnAvailable()) {
-      showToast('\u274C Tu dispositivo no soporta autenticaci\u00f3n biom\u00e9trica');
+    try {
+      if (!guard || !guard.isWebAuthnAvailable || !guard.isWebAuthnAvailable()) {
+        showToast('\u274C Tu dispositivo no soporta autenticaci\u00f3n biom\u00e9trica');
+        return;
+      }
+    } catch (e) {
+      showToast('\u274C Biometr\u00eda no disponible');
       return;
     }
     var hasBio = guard.hasBiometric ? guard.hasBiometric() : false;
@@ -4567,6 +4575,7 @@
   // Inyectar campos de Plan de Pagos en formulario React
   // ============================================================
   function initDebtFormEnhancer() {
+    if (window._dcFormObserver) return;
     var observer = new MutationObserver(function(mutations) {
       for (var i = 0; i < mutations.length; i++) {
         var nodes = mutations[i].addedNodes;
@@ -4579,6 +4588,7 @@
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    window._dcFormObserver = observer;
   }
 
   function checkAndEnhanceForm(node) {
@@ -4844,7 +4854,7 @@
       instInput.value = plan.totalInstallments || 12;
       freqInput.value = plan.frequency || 'monthly';
       if (plan.startDate) startInput.value = plan.startDate;
-    });
+    }).catch(function() {});
   }
 
   // ============================================================
@@ -5104,6 +5114,7 @@
   // Herramientas contextuales en vista de deudas
   // ============================================================
   function injectDebtToolsBar() {
+    if (window._dcToolsObserver) return;
     var observer = new MutationObserver(function() {
       var headers = document.querySelectorAll('h2');
       for (var i = 0; i < headers.length; i++) {
@@ -5119,6 +5130,7 @@
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    window._dcToolsObserver = observer;
   }
 
   function addToolsToDebtsView(headerContainer) {

@@ -1,5 +1,5 @@
-const STATIC_CACHE = 'debtcontrol-static-v7.2.0';
-const DYNAMIC_CACHE = 'debtcontrol-dynamic-v7.2.0';
+const STATIC_CACHE = 'debtcontrol-static-v7.2.1';
+const DYNAMIC_CACHE = 'debtcontrol-dynamic-v7.2.1';
 
 const STATIC_ASSETS = [
   './',

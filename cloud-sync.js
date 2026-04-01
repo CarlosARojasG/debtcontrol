@@ -49,7 +49,7 @@
   // Constantes
   // ============================================================
   var SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
-  var SYNC_VERSION = '7.3.0';
+  var SYNC_VERSION = '7.4.0';
   var LS_BIN_ID  = 'debtcontrol_bin_id';
   var LS_BIN_KEY = 'debtcontrol_bin_key';
   var LS_SYNC_ID = 'debtcontrol_sync_id';
@@ -66,6 +66,7 @@
   var LS_RECURRING_BILLS = 'debtcontrol_recurring_bills';
   var LS_RECURRING_RECORDS = 'debtcontrol_recurring_records';
   var LS_RECURRING_CHECKED = 'debtcontrol_recurring_checked';
+  var LS_DEBT_PLANS = 'debtcontrol_debt_plans';
 
   var binId = null;
   var binKey = null;
@@ -185,21 +186,49 @@
   }
 
   // ============================================================
-  // Cifrado simple con PIN
+  // Cifrado AES-GCM con PIN (Web Crypto API)
   // ============================================================
-  function getSyncPin() { return localStorage.getItem(LS_SYNC_PIN) || ''; }
-
-  function simpleEncrypt(text, pin) {
-    if (!pin) return text;
-    var encoded = btoa(unescape(encodeURIComponent(text)));
-    var result = '';
-    for (var i = 0; i < encoded.length; i++) {
-      result += String.fromCharCode(encoded.charCodeAt(i) ^ pin.charCodeAt(i % pin.length));
-    }
-    return btoa(result);
+  function getSyncPin() {
+    return sessionStorage.getItem(LS_SYNC_PIN) || '';
   }
 
-  function simpleDecrypt(text, pin) {
+  async function encryptWithPin(text, pin) {
+    try {
+      var enc = new TextEncoder();
+      var keyMat = await crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveKey']);
+      var salt = crypto.getRandomValues(new Uint8Array(16));
+      var key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+        keyMat, { name: 'AES-GCM', length: 256 }, false, ['encrypt']
+      );
+      var iv = crypto.getRandomValues(new Uint8Array(12));
+      var encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, enc.encode(text));
+      var combined = new Uint8Array(16 + 12 + encrypted.byteLength);
+      combined.set(salt, 0); combined.set(iv, 16); combined.set(new Uint8Array(encrypted), 28);
+      var str = ''; combined.forEach(function(b) { str += String.fromCharCode(b); });
+      return btoa(str);
+    } catch (e) { return null; }
+  }
+
+  async function decryptWithPin(data, pin) {
+    try {
+      var bytes = Uint8Array.from(atob(data), function(c) { return c.charCodeAt(0); });
+      var salt = bytes.slice(0, 16), iv = bytes.slice(16, 28), ct = bytes.slice(28);
+      var enc = new TextEncoder();
+      var keyMat = await crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveKey']);
+      var key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+        keyMat, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
+      );
+      var decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, ct);
+      return new TextDecoder().decode(decrypted);
+    } catch (e) {
+      // Fallback: intentar descifrado XOR legacy (datos anteriores a v7.3.1)
+      return decryptLegacyXOR(data, pin);
+    }
+  }
+
+  function decryptLegacyXOR(text, pin) {
     if (!pin) return text;
     try {
       var decoded = atob(text);
@@ -827,9 +856,15 @@
       var d = new Date(p.date || p.fecha || '');
       return d >= sixMonthsAgo;
     });
-    var avgMonthlyPayment = recentPayments.length > 0
-      ? recentPayments.reduce(function(s, p) { return s + parseFloat(p.amount || p.monto || 0); }, 0) / 6
-      : totalMonthlyPay;
+    var avgMonthlyPayment = (function() {
+      if (recentPayments.length === 0) return totalMonthlyPay;
+      // Calcular cuántos meses reales han pasado desde el primer pago reciente
+      var dates = recentPayments.map(function(p) { return new Date(p.date || p.fecha || ''); });
+      var minDate = new Date(Math.min.apply(null, dates));
+      var monthsCovered = Math.max(1, Math.round((now - minDate) / (30.44 * 24 * 60 * 60 * 1000)));
+      monthsCovered = Math.min(monthsCovered, 6);
+      return recentPayments.reduce(function(s, p) { return s + parseFloat(p.amount || p.monto || 0); }, 0) / monthsCovered;
+    })();
 
     var iSt = 'width:100%;padding:12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;box-sizing:border-box;margin-top:6px;outline:none;';
 
@@ -2600,12 +2635,13 @@
         saveRecurringRecords(records);
         showToast('\u2705 ' + bill.name + ': ' + getCurrency() + amount.toLocaleString());
         // Actualizar visual: remover item del listado
+        el.setAttribute('data-dc-processed', 'true');
         el.style.opacity = '0.4';
         el.style.pointerEvents = 'none';
         el.querySelector('div:last-child').textContent = '\u2705';
         el.querySelector('div:last-child').style.color = '#27ae60';
         // Si ya no quedan pendientes, cerrar
-        var remaining = card.querySelectorAll('.dc-rbc-item:not([style*="opacity: 0.4"])');
+        var remaining = card.querySelectorAll('.dc-rbc-item:not([data-dc-processed])');
         if (remaining.length <= 1) {
           setTimeout(function() { overlay.remove(); }, 800);
         }
@@ -2864,7 +2900,8 @@
         _encrypted: !!pin
       };
       if (pin) {
-        payload._data = simpleEncrypt(JSON.stringify(data), pin);
+        payload._data = await encryptWithPin(JSON.stringify(data), pin);
+        if (!payload._data) { showToast('\u274C Error al cifrar. Verifica el PIN.'); return; }
       } else {
         for (var k in data) { payload[k] = data[k]; }
       }
@@ -2897,8 +2934,8 @@
           pin = await dcPrompt('Los datos est\u00e1n cifrados.\nIntroduce tu PIN:', { icon: '\uD83D\uDD12', placeholder: 'PIN...', inputType: 'password' });
         }
         if (!pin) return;
-        var decrypted = simpleDecrypt(raw._data, pin);
-        if (!decrypted) { showToast('\u274C PIN incorrecto'); return; }
+        var decrypted = await decryptWithPin(raw._data, pin);
+        if (!decrypted) { showToast('\u274C PIN incorrecto o datos corruptos'); return; }
         data = JSON.parse(decrypted);
       } else {
         data = raw;
@@ -3598,7 +3635,7 @@
     var savedBinKey = binKey || '';
     var lastSync = localStorage.getItem(LS_LAST_SYNC) || 'Nunca';
     var pin = getSyncPin();
-    var qrData = (savedBinId && savedBinKey) ? JSON.stringify({ binId: savedBinId, binKey: savedBinKey }) : '';
+    var qrData = savedBinId ? escapeAttr(savedBinId) : '';
     var qrSrc  = qrData ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(qrData) : '';
 
     var panel = document.createElement('div');
@@ -3631,7 +3668,7 @@
       + (savedBinId ? '<button id="dc-clear-config" style="width:100%;padding:10px;border:1px solid #FF3B30;border-radius:10px;background:transparent;color:#FF3B30;font-size:13px;cursor:pointer;margin-bottom:16px">\uD83D\uDDD1\uFE0F Desconectar</button>' : '')
       + (qrSrc ? '<hr style="border:none;border-top:1px solid ' + t.border + ';margin:16px 0">'
         + '<h3 style="font-size:16px;margin:0 0 8px 0">\uD83D\uDCF1 Compartir con otro dispositivo</h3>'
-        + '<p style="font-size:12px;color:' + t.muted + ';margin:0 0 10px 0">Escanea el QR desde el otro dispositivo (incluye API Key + Bin ID).</p>'
+        + '<p style="font-size:12px;color:' + t.muted + ';margin:0 0 10px 0">El QR contiene solo el Bin ID. La API Key débela introducir manualmente en el otro dispositivo.</p>'
         + '<div style="text-align:center;margin-bottom:12px"><img src="' + escapeAttr(qrSrc) + '" style="width:180px;height:180px;border-radius:12px;border:1px solid ' + t.border + '" alt="QR sincronizaci\u00f3n"></div>'
         + '<div style="display:flex;gap:8px;margin-bottom:16px">'
         + '<button id="dc-copy-binid" style="flex:1;padding:10px;border:1px solid ' + t.border + ';border-radius:10px;background:' + t.bg + ';color:' + t.txt + ';font-size:12px;cursor:pointer">\uD83D\uDCCB Bin ID</button>'
@@ -3758,9 +3795,20 @@
 
     // PIN
     panel.querySelector('#dc-save-pin').addEventListener('click', function() {
-      var newPin = pinInput.value;
-      localStorage.setItem(LS_SYNC_PIN, newPin);
-      showToast(newPin ? '\uD83D\uDD12 PIN guardado' : '\uD83D\uDD13 PIN eliminado');
+      var newPin = pinInput.value.trim();
+      if (newPin && newPin.length < 4) {
+        showToast('\u26A0\uFE0F El PIN debe tener al menos 4 caracteres');
+        return;
+      }
+      if (newPin) {
+        sessionStorage.setItem(LS_SYNC_PIN, newPin);
+        localStorage.removeItem(LS_SYNC_PIN);
+        showToast('\uD83D\uDD12 PIN activo para esta sesi\u00f3n');
+      } else {
+        sessionStorage.removeItem(LS_SYNC_PIN);
+        localStorage.removeItem(LS_SYNC_PIN);
+        showToast('\uD83D\uDD13 PIN eliminado');
+      }
     });
   }
 
@@ -3812,7 +3860,6 @@
     var newTheme = current === 'dark' ? 'light' : 'dark';
     html.setAttribute('data-theme', newTheme);
     localStorage.setItem('debtcontrol_theme', newTheme);
-    applyMenuTheme();
     showToast(newTheme === 'dark' ? '\uD83C\uDF19 Modo oscuro' : '\u2600\uFE0F Modo claro');
   }
 
@@ -4103,22 +4150,22 @@
         var months = 0, totalPaid = 0, totalInterest = 0;
         while (months < 600 && ds.some(function(d) { return d.balance > 0.01; })) {
           months++;
-          for (var i = 0; i < ds.length; i++) {
+          for (let i = 0; i < ds.length; i++) {
             if (ds[i].balance <= 0) continue;
-            var interest = ds[i].balance * (ds[i].rate / 100 / 12);
+            let interest = ds[i].balance * (ds[i].rate / 100 / 12);
             ds[i].balance += interest;
             totalInterest += interest;
           }
           var avail = extra;
-          for (var i = 0; i < ds.length; i++) {
+          for (let i = 0; i < ds.length; i++) {
             if (ds[i].balance <= 0) { avail += ds[i].minPayment; continue; }
-            var pay = Math.min(ds[i].minPayment, ds[i].balance);
-            ds[i].balance -= pay; totalPaid += pay;
+            let pay1 = Math.min(ds[i].minPayment, ds[i].balance);
+            ds[i].balance -= pay1; totalPaid += pay1;
           }
-          for (var i = 0; i < ds.length; i++) {
+          for (let i = 0; i < ds.length; i++) {
             if (ds[i].balance <= 0 || avail <= 0) continue;
-            var pay = Math.min(avail, ds[i].balance);
-            ds[i].balance -= pay; totalPaid += pay; avail -= pay;
+            let pay2 = Math.min(avail, ds[i].balance);
+            ds[i].balance -= pay2; totalPaid += pay2; avail -= pay2;
           }
         }
         return { months: months, totalPaid: totalPaid, totalInterest: totalInterest };
@@ -4482,9 +4529,7 @@
     renderHub();
   }
 
-  function applyMenuTheme() {
-    // El hub se re-renderiza cada vez con colores actuales
-  }
+  function applyMenuTheme() { /* hub se re-renderiza con colores actuales */ }
 
   // ============================================================
   // Auto-backup local (fix: tamaÃ±o controlado)
@@ -4536,7 +4581,6 @@
   // ============================================================
   // Debt Enhancer - Plan de Pagos integrado en formulario
   // ============================================================
-  var LS_DEBT_PLANS = 'debtcontrol_debt_plans';
 
   function getDebtPlans() {
     try { return JSON.parse(localStorage.getItem(LS_DEBT_PLANS)) || {}; } catch (e) { return {}; }
@@ -4763,7 +4807,7 @@
     function getFormValues() {
       var amount = 0;
       var rate = 0;
-      var numInputs = form.querySelectorAll('input[type="number"]');
+      var numInputs = form.querySelectorAll('input[type="number"]:not(#dc-plan-installments):not(#dc-plan-preview *)');
       // First number input is amount, second is interest rate (by React form order)
       if (numInputs.length >= 1) amount = parseFloat(numInputs[0].value) || 0;
       if (numInputs.length >= 2) rate = parseFloat(numInputs[numInputs.length - 1].value) || 0;
@@ -4903,7 +4947,7 @@
     var debts = await lf.getItem('debts') || [];
 
     // Buscar tarjetas de deuda en el DOM
-    var cards = document.querySelectorAll('div[style*="borderLeft"][style*="borderRadius"]');
+    var cards = document.querySelectorAll('div[style*="border-left"][style*="border-radius"]');
     cards.forEach(function(card) {
       if (card.getAttribute('data-dc-plan-injected')) return;
 

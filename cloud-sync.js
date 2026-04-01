@@ -49,9 +49,9 @@
   // Constantes
   // ============================================================
   var SYNC_KEYS = ['debts', 'payments', 'reminders', 'investments', 'savings', 'userStats'];
-  var SYNC_VERSION = '7.2.1';
-  var DB_URL_KEY = 'debtcontrol_guard_dburl';
-  var LS_LEGACY_CONFIG = 'debtcontrol_firebase_config';
+  var SYNC_VERSION = '7.3.0';
+  var LS_BIN_ID  = 'debtcontrol_bin_id';
+  var LS_BIN_KEY = 'debtcontrol_bin_key';
   var LS_SYNC_ID = 'debtcontrol_sync_id';
   var LS_LAST_SYNC = 'debtcontrol_last_sync';
   var LS_SYNC_PIN = 'debtcontrol_sync_pin';
@@ -67,69 +67,84 @@
   var LS_RECURRING_RECORDS = 'debtcontrol_recurring_records';
   var LS_RECURRING_CHECKED = 'debtcontrol_recurring_checked';
 
-  var dbUrl = null;
+  var binId = null;
+  var binKey = null;
   var connected = false;
   var syncUserId = null;
 
   // ============================================================
-  // DB URL management + migraciÃ³n v2.x
+  // JSONBin.io config
   // ============================================================
-  function getDbUrl() {
-    try {
-      var legacy = localStorage.getItem(LS_LEGACY_CONFIG);
-      if (legacy) {
-        var cfg = JSON.parse(legacy);
-        if (cfg && cfg.databaseURL) {
-          localStorage.setItem(DB_URL_KEY, cfg.databaseURL);
-        }
-      }
-    } catch (e) {}
-    return localStorage.getItem(DB_URL_KEY) || null;
+  var JSONBIN_BASE = 'https://api.jsonbin.io/v3';
+
+  function getBinConfig() {
+    return {
+      id:  localStorage.getItem(LS_BIN_ID)  || null,
+      key: localStorage.getItem(LS_BIN_KEY) || null
+    };
   }
 
-  function saveDbUrl(url) {
-    url = url.replace(/\/+$/, '');
-    localStorage.setItem(DB_URL_KEY, url);
-    dbUrl = url;
+  function saveBinConfig(id, key) {
+    if (id)  { localStorage.setItem(LS_BIN_ID,  id);  binId  = id;  }
+    if (key) { localStorage.setItem(LS_BIN_KEY, key); binKey = key; }
   }
 
   // ============================================================
-  // Firebase REST API
+  // JSONBin.io REST API
   // ============================================================
-  async function restGet(path) {
-    if (!dbUrl) return null;
+  async function restGet() {
+    if (!binId || !binKey) return null;
     try {
-      var resp = await fetch(dbUrl + '/' + path + '.json');
+      var resp = await fetch(JSONBIN_BASE + '/b/' + binId + '/latest', {
+        headers: { 'X-Master-Key': binKey }
+      });
       if (!resp.ok) return null;
-      return await resp.json();
+      var json = await resp.json();
+      return json.record || null;
     } catch (e) { return null; }
   }
 
-  async function restPut(path, data) {
-    if (!dbUrl) return false;
+  async function restPut(data) {
+    if (!binId || !binKey) return false;
     try {
-      var resp = await fetch(dbUrl + '/' + path + '.json', {
+      var resp = await fetch(JSONBIN_BASE + '/b/' + binId, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': binKey
+        },
         body: JSON.stringify(data)
       });
       return resp.ok;
     } catch (e) { return false; }
   }
 
-  async function restDelete(path) {
-    if (!dbUrl) return false;
-    try {
-      var resp = await fetch(dbUrl + '/' + path + '.json', { method: 'DELETE' });
-      return resp.ok;
-    } catch (e) { return false; }
-  }
-
   async function testConnection() {
-    if (!dbUrl) return false;
+    if (!binKey) return false;
     try {
-      var resp = await fetch(dbUrl + '/.json?shallow=true', { method: 'GET' });
-      return resp.ok;
+      var resp, meta;
+      if (binId) {
+        resp = await fetch(JSONBIN_BASE + '/b/' + binId + '/latest', {
+          headers: { 'X-Master-Key': binKey }
+        });
+        return resp.ok;
+      } else {
+        resp = await fetch(JSONBIN_BASE + '/b', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': binKey,
+            'X-Bin-Name': 'DebtControlPro',
+            'X-Bin-Private': 'true'
+          },
+          body: JSON.stringify({ _init: true, _createdAt: new Date().toISOString() })
+        });
+        if (!resp.ok) return false;
+        meta = await resp.json();
+        localStorage.setItem(LS_BIN_ID, meta.metadata.id);
+        binId = meta.metadata.id;
+        return true;
+      }
     } catch (e) { return false; }
   }
 
@@ -645,7 +660,7 @@
       + '<div style="font-size:14px;font-weight:600;margin-bottom:8px">\u2728 Caracter\u00edsticas</div>'
       + '<div style="font-size:12px;line-height:1.8;opacity:0.9">'
       + '\u2022 Gesti\u00f3n completa de deudas y finanzas<br>'
-      + '\u2022 Sincronizaci\u00f3n en la nube (Firebase)<br>'
+      + '\u2022 Sincronizaci\u00f3n en la nube (JSONBin.io)<br>'
       + '\u2022 Exportar PDF, JSON y CSV<br>'
       + '\u2022 Calculadora de amortizaci\u00f3n<br>'
       + '\u2022 Estrategia Snowball vs Avalanche<br>'
@@ -678,7 +693,7 @@
       + '\u2022 Fix DTI disponible negativo</div></div>'
       + '<div style="font-size:11px;color:' + t.muted + ';margin-bottom:16px">'
       + 'Desarrollado con \u2764\uFE0F<br>'
-      + 'React 19 \u2022 Vite \u2022 PWA \u2022 Firebase REST</div>'
+      + 'React 19 \u2022 Vite \u2022 PWA \u2022 JSONBin.io</div>'
       + '<button class="dc-about-close" style="width:100%;padding:14px;border:1px solid ' + t.border + ';border-radius:12px;background:transparent;color:' + t.txt + ';font-size:15px;cursor:pointer">Cerrar</button>';
 
     overlay.appendChild(card);
@@ -2827,10 +2842,10 @@
   }
 
   // ============================================================
-  // Sync con Firebase REST
+  // Sync con JSONBin.io REST
   // ============================================================
   async function syncToCloud() {
-    if (!connected) { showToast('\u26A0\uFE0F Configura Firebase primero (\u2601\uFE0F \u2192 \u2699\uFE0F)'); return; }
+    if (!connected) { showToast('\u26A0\uFE0F Configura la nube primero (\u2699\uFE0F \u2192 Nube)'); return; }
     try {
       await savePreSyncSnapshot();
       showToast('\u2601\uFE0F Subiendo datos...');
@@ -2853,7 +2868,7 @@
       } else {
         for (var k in data) { payload[k] = data[k]; }
       }
-      var ok = await restPut('users/' + getSyncId() + '/data', payload);
+      var ok = await restPut(payload);
       if (ok) {
         localStorage.setItem(LS_LAST_SYNC, new Date().toISOString());
         logSyncEvent('upload', true, 'Datos subidos correctamente');
@@ -2869,11 +2884,11 @@
   }
 
   async function syncFromCloud() {
-    if (!connected) { showToast('\u26A0\uFE0F Configura Firebase primero (\u2601\uFE0F \u2192 \u2699\uFE0F)'); return; }
+    if (!connected) { showToast('\u26A0\uFE0F Configura la nube primero (\u2699\uFE0F \u2192 Nube)'); return; }
     try {
       await savePreSyncSnapshot();
       showToast('\u2601\uFE0F Descargando datos...');
-      var raw = await restGet('users/' + getSyncId() + '/data');
+      var raw = await restGet();
       if (!raw) { showToast('\u2139\uFE0F No hay datos en la nube'); return; }
       var data;
       if (raw._encrypted) {
@@ -3563,9 +3578,9 @@
   }
 
   // ============================================================
-  // Panel configuraciÃ³n Firebase (ARREGLADO: sin XSS)
+  // Panel configuración JSONBin.io
   // ============================================================
-  function showFirebaseSetup() {
+  function showCloudSetup() {
     var existing = document.getElementById('dc-setup-overlay');
     if (existing) { existing.remove(); return; }
 
@@ -3579,11 +3594,12 @@
       padding: '16px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     });
 
-    var savedUrl = dbUrl || '';
-    var syncId = getSyncId();
+    var savedBinId  = binId  || '';
+    var savedBinKey = binKey || '';
     var lastSync = localStorage.getItem(LS_LAST_SYNC) || 'Nunca';
     var pin = getSyncPin();
-    var qrSrc = savedUrl ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(savedUrl) : '';
+    var qrData = (savedBinId && savedBinKey) ? JSON.stringify({ binId: savedBinId, binKey: savedBinKey }) : '';
+    var qrSrc  = qrData ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(qrData) : '';
 
     var panel = document.createElement('div');
     Object.assign(panel.style, {
@@ -3594,37 +3610,43 @@
 
     panel.innerHTML = ''
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-      + '<h2 style="margin:0;font-size:20px">\u2601\uFE0F Configurar Firebase</h2>'
+      + '<h2 style="margin:0;font-size:20px">\u2601\uFE0F Sincronizaci\u00f3n en la nube</h2>'
       + '<button id="dc-close-setup" style="background:none;border:none;font-size:24px;cursor:pointer;color:' + t.txt + ';padding:4px">\u2715</button>'
       + '</div>'
       + '<div style="background:' + (connected ? '#34C75920' : '#FF950020') + ';border-radius:12px;padding:12px;margin-bottom:16px;display:flex;align-items:center;gap:8px">'
       + '<span style="font-size:20px">' + (connected ? '\uD83D\uDFE2' : '\uD83D\uDD34') + '</span>'
-      + '<span style="font-size:14px;font-weight:600">' + (connected ? 'Conectado a Firebase' : 'No conectado') + '</span>'
+      + '<div><div style="font-size:14px;font-weight:600">' + (connected ? 'Conectado \u2014 JSONBin.io' : 'No conectado') + '</div>'
+      + '<div style="font-size:11px;color:' + t.muted + '">' + (connected ? 'Bin ID: ' + escapeHtml(savedBinId.substring(0, 12)) + '...' : 'Configura tu API Key para sincronizar') + '</div>'
+      + '</div></div>'
+      + '<div style="margin-bottom:12px">'
+      + '<label style="font-size:13px;font-weight:600;color:' + t.muted + '">API Key (Master Key de JSONBin.io)</label>'
+      + '<div style="display:flex;gap:6px;margin-top:6px">'
+      + '<input id="dc-binkey" type="password" placeholder="$2a$10$..." style="flex:1;padding:12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:12px;font-family:monospace;box-sizing:border-box">'
+      + '<button id="dc-toggle-key" style="padding:10px 12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';cursor:pointer;font-size:14px">\uD83D\uDC41</button>'
       + '</div>'
-      + '<div style="margin-bottom:16px">'
-      + '<label style="font-size:13px;font-weight:600;color:' + t.muted + '">URL de tu Realtime Database</label>'
-      + '<input id="dc-dburl" placeholder="https://tu-proyecto-default-rtdb.firebaseio.com" style="width:100%;padding:12px;border-radius:10px;border:1px solid ' + t.border + ';background:' + t.inputBg + ';color:' + t.txt + ';font-size:14px;box-sizing:border-box;margin-top:6px">'
-      + '<p style="font-size:11px;color:' + t.muted + ';margin:6px 0 0 0">Firebase Console \u2192 Realtime Database (URL arriba de los datos).</p>'
+      + '<p style="font-size:11px;color:' + t.muted + ';margin:6px 0 0 0">Se guarda solo en este dispositivo.</p>'
       + '</div>'
-      + '<button id="dc-save-config" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:16px;font-weight:600;cursor:pointer;margin-bottom:12px">'
+      + '<button id="dc-save-config" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;font-size:16px;font-weight:600;cursor:pointer;margin-bottom:' + (savedBinId ? '8' : '16') + 'px">'
       + (connected ? '\u2705 Conectado \u2014 Guardar cambios' : '\uD83D\uDD17 Conectar') + '</button>'
-      + (savedUrl ? '<button id="dc-clear-config" style="width:100%;padding:10px;border:1px solid #FF3B30;border-radius:10px;background:transparent;color:#FF3B30;font-size:13px;cursor:pointer;margin-bottom:16px">\uD83D\uDDD1\uFE0F Desconectar</button>' : '')
-      + (savedUrl ? '<hr style="border:none;border-top:1px solid ' + t.border + ';margin:16px 0">'
-        + '<h3 style="font-size:16px;margin:0 0 12px 0">\uD83D\uDCF1 Compartir con otro dispositivo</h3>'
-        + '<div style="text-align:center;margin-bottom:12px"><img id="dc-qr" src="' + escapeAttr(qrSrc) + '" style="width:180px;height:180px;border-radius:12px;border:1px solid ' + t.border + '" alt="QR"></div>'
+      + (savedBinId ? '<button id="dc-clear-config" style="width:100%;padding:10px;border:1px solid #FF3B30;border-radius:10px;background:transparent;color:#FF3B30;font-size:13px;cursor:pointer;margin-bottom:16px">\uD83D\uDDD1\uFE0F Desconectar</button>' : '')
+      + (qrSrc ? '<hr style="border:none;border-top:1px solid ' + t.border + ';margin:16px 0">'
+        + '<h3 style="font-size:16px;margin:0 0 8px 0">\uD83D\uDCF1 Compartir con otro dispositivo</h3>'
+        + '<p style="font-size:12px;color:' + t.muted + ';margin:0 0 10px 0">Escanea el QR desde el otro dispositivo (incluye API Key + Bin ID).</p>'
+        + '<div style="text-align:center;margin-bottom:12px"><img src="' + escapeAttr(qrSrc) + '" style="width:180px;height:180px;border-radius:12px;border:1px solid ' + t.border + '" alt="QR sincronizaci\u00f3n"></div>'
         + '<div style="display:flex;gap:8px;margin-bottom:16px">'
-        + '<button id="dc-copy-url" style="flex:1;padding:10px;border:1px solid ' + t.border + ';border-radius:10px;background:' + t.bg + ';color:' + t.txt + ';font-size:13px;cursor:pointer">\uD83D\uDCCB Copiar URL</button>'
-        + '<button id="dc-share-url" style="flex:1;padding:10px;border:1px solid ' + t.border + ';border-radius:10px;background:' + t.bg + ';color:' + t.txt + ';font-size:13px;cursor:pointer">\uD83D\uDCE4 Compartir</button>'
+        + '<button id="dc-copy-binid" style="flex:1;padding:10px;border:1px solid ' + t.border + ';border-radius:10px;background:' + t.bg + ';color:' + t.txt + ';font-size:12px;cursor:pointer">\uD83D\uDCCB Bin ID</button>'
+        + '<button id="dc-copy-binkey-share" style="flex:1;padding:10px;border:1px solid ' + t.border + ';border-radius:10px;background:' + t.bg + ';color:' + t.txt + ';font-size:12px;cursor:pointer">\uD83D\uDCCB API Key</button>'
         + '</div>' : '')
       + '<hr style="border:none;border-top:1px solid ' + t.border + ';margin:16px 0">'
-      + '<h3 style="font-size:16px;margin:0 0 12px 0">\uD83D\uDD17 Sincronizaci\u00f3n</h3>'
+      + '<h3 style="font-size:16px;margin:0 0 10px 0">\uD83D\uDD17 Vincular otro dispositivo</h3>'
       + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px;margin-bottom:12px">'
-      + '<div style="font-size:12px;color:' + t.muted + ';font-weight:600">Tu ID de sincronizaci\u00f3n</div>'
-      + '<div style="font-size:12px;font-family:monospace;word-break:break-all;margin-top:4px">' + escapeHtml(syncId) + '</div>'
-      + '<div style="display:flex;gap:8px;margin-top:8px">'
-      + '<button id="dc-copy-id" style="flex:1;padding:8px;border:1px solid ' + t.border + ';border-radius:8px;background:' + t.bg + ';color:' + t.txt + ';font-size:12px;cursor:pointer">\uD83D\uDCCB Copiar</button>'
-      + '<button id="dc-change-id" style="flex:1;padding:8px;border:1px solid ' + t.border + ';border-radius:8px;background:' + t.bg + ';color:' + t.txt + ';font-size:12px;cursor:pointer">\u270F\uFE0F Cambiar ID</button>'
-      + '</div></div>'
+      + '<div style="font-size:12px;color:' + t.muted + ';font-weight:600;margin-bottom:6px">Bin ID del otro dispositivo</div>'
+      + '<div style="display:flex;gap:8px">'
+      + '<input id="dc-link-binid" placeholder="64xxxxxxxxxxxx..." style="flex:1;padding:10px;border-radius:8px;border:1px solid ' + t.border + ';background:' + t.bg + ';color:' + t.txt + ';font-size:12px;font-family:monospace">'
+      + '<button id="dc-link-save" style="padding:10px 14px;border:none;border-radius:8px;background:#007AFF;color:#fff;font-size:12px;cursor:pointer;font-weight:600">OK</button>'
+      + '</div>'
+      + '<p style="font-size:11px;color:' + t.muted + ';margin:6px 0 0 0">Ambos dispositivos deben usar la misma API Key.</p>'
+      + '</div>'
       + '<div style="background:' + t.inputBg + ';border-radius:12px;padding:12px;margin-bottom:12px">'
       + '<div style="font-size:12px;color:' + t.muted + ';font-weight:600">\u00daltima sincronizaci\u00f3n</div>'
       + '<div style="font-size:13px;margin-top:4px">' + (lastSync !== 'Nunca' ? new Date(lastSync).toLocaleString('es-ES') : 'Nunca') + '</div>'
@@ -3635,64 +3657,70 @@
       + '<input id="dc-pin" type="password" placeholder="PIN num\u00e9rico..." style="flex:1;padding:10px;border-radius:8px;border:1px solid ' + t.border + ';background:' + t.bg + ';color:' + t.txt + ';font-size:14px">'
       + '<button id="dc-save-pin" style="padding:8px 16px;border:none;border-radius:8px;background:#34C759;color:#fff;font-size:13px;cursor:pointer;font-weight:600">Guardar</button>'
       + '</div>'
-      + '<div style="font-size:11px;color:' + t.muted + ';margin-top:6px">Cifra los datos antes de subirlos.</div>'
+      + '<div style="font-size:11px;color:' + t.muted + ';margin-top:6px">Cifra los datos antes de subirlos a la nube.</div>'
       + '</div>'
       + '<hr style="border:none;border-top:1px solid ' + t.border + ';margin:16px 0">'
-      + '<h3 style="font-size:16px;margin:0 0 8px 0">\uD83D\uDCD6 \u00bfC\u00f3mo obtener la URL?</h3>'
+      + '<h3 style="font-size:16px;margin:0 0 8px 0">\uD83D\uDCD6 \u00bfC\u00f3mo obtener la API Key?</h3>'
       + '<ol style="font-size:13px;color:' + t.muted + ';padding-left:20px;margin:0;line-height:2">'
-      + '<li>Ve a <a href="https://console.firebase.google.com/" target="_blank" style="color:#007AFF">console.firebase.google.com</a></li>'
-      + '<li>Crea un proyecto (desactiva Analytics)</li>'
-      + '<li><b>Compilaci\u00f3n \u2192 Realtime Database \u2192 Crear BD</b></li>'
-      + '<li>Selecciona regi\u00f3n \u2192 <b>Modo de prueba</b></li>'
-      + '<li>Copia la URL de arriba</li></ol>';
+      + '<li>Ve a <a href="https://jsonbin.io/" target="_blank" style="color:#007AFF">jsonbin.io</a> y crea cuenta gratuita</li>'
+      + '<li>En el dashboard ir a <b>Account Settings \u2192 API Keys</b></li>'
+      + '<li>Copia tu <b>Master Key</b> (empieza con <code>$2a$10$</code>)</li>'
+      + '<li>P\u00e9gala arriba y pulsa <b>Conectar</b></li>'
+      + '<li>El bin se crea autom\u00e1ticamente en tu cuenta</li>'
+      + '<li>\uD83C\uDD93 Plan gratuito: 10\u2009000 peticiones/mes, privado</li></ol>';
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
 
-    // Set URL value safely (no XSS)
-    var urlInput = panel.querySelector('#dc-dburl');
-    urlInput.value = savedUrl;
-
-    // Set PIN value safely
+    var keyInput = panel.querySelector('#dc-binkey');
+    keyInput.value = savedBinKey;
     var pinInput = panel.querySelector('#dc-pin');
     pinInput.value = pin;
 
-    // Events
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
     panel.querySelector('#dc-close-setup').addEventListener('click', function() { overlay.remove(); });
 
+    // Mostrar/ocultar API Key
+    panel.querySelector('#dc-toggle-key').addEventListener('click', function() {
+      keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
+    });
+
+    // Conectar / guardar
     panel.querySelector('#dc-save-config').addEventListener('click', async function() {
-      var url = urlInput.value.trim();
-      if (!url || !url.startsWith('https://')) {
-        showToast('\u274C La URL debe empezar con https://');
+      var key = keyInput.value.trim();
+      if (!key || key.length < 20) {
+        showToast('\u274C API Key inv\u00e1lida');
         return;
       }
       var btn = panel.querySelector('#dc-save-config');
       btn.textContent = '\u23F3 Conectando...';
       btn.disabled = true;
-      saveDbUrl(url);
+      saveBinConfig(null, key);
       var ok = await testConnection();
       if (ok) {
         connected = true;
-        showToast('\u2705 Firebase conectado');
+        showToast('\u2705 JSONBin conectado. Bin: ' + (binId || '').substring(0, 8) + '...');
         overlay.remove();
         updateFabBadge();
       } else {
-        connected = false;
+        binKey = null;
+        localStorage.removeItem(LS_BIN_KEY);
         btn.textContent = '\uD83D\uDD17 Conectar';
         btn.disabled = false;
-        showToast('\u274C No se pudo conectar. Verifica URL y reglas.', 5000);
+        showToast('\u274C No se pudo conectar. Verifica tu API Key.', 5000);
       }
     });
 
+    // Desconectar
     var clearBtn = panel.querySelector('#dc-clear-config');
     if (clearBtn) {
       clearBtn.addEventListener('click', async function() {
-        var ok = await dcConfirm('\u00bfDesconectar Firebase?\nLos datos locales NO se borran.', { icon: '\uD83D\uDD0C', confirmText: 'Desconectar', danger: true });
+        var ok = await dcConfirm('\u00bfDesconectar la nube?\nLos datos locales NO se borran.', { icon: '\uD83D\uDD0C', confirmText: 'Desconectar', danger: true });
         if (!ok) return;
-        localStorage.removeItem(DB_URL_KEY);
-        localStorage.removeItem(LS_LEGACY_CONFIG);
-        dbUrl = null;
+        localStorage.removeItem(LS_BIN_ID);
+        localStorage.removeItem(LS_BIN_KEY);
+        binId = null;
+        binKey = null;
         connected = false;
         overlay.remove();
         updateFabBadge();
@@ -3700,39 +3728,35 @@
       });
     }
 
-    // Clipboard (sin prompt fallback)
-    var copyUrlBtn = panel.querySelector('#dc-copy-url');
-    if (copyUrlBtn) {
-      copyUrlBtn.addEventListener('click', function() {
-        copyToClipboard(savedUrl).then(function() { showToast('\uD83D\uDCCB URL copiada'); });
+    // Copiar Bin ID
+    var cBinId = panel.querySelector('#dc-copy-binid');
+    if (cBinId) {
+      cBinId.addEventListener('click', function() {
+        copyToClipboard(savedBinId).then(function() { showToast('\uD83D\uDCCB Bin ID copiado'); });
       });
     }
 
-    var shareBtn = panel.querySelector('#dc-share-url');
-    if (shareBtn) {
-      shareBtn.addEventListener('click', function() {
-        if (navigator.share) {
-          navigator.share({ title: 'DebtControl - Firebase URL', text: savedUrl }).catch(function() {});
-        } else {
-          copyToClipboard(savedUrl).then(function() { showToast('\uD83D\uDCCB URL copiada al portapapeles'); });
-        }
+    // Copiar API Key
+    var cBinKey = panel.querySelector('#dc-copy-binkey-share');
+    if (cBinKey) {
+      cBinKey.addEventListener('click', function() {
+        copyToClipboard(savedBinKey).then(function() { showToast('\uD83D\uDCCB API Key copiada'); });
       });
     }
 
-    panel.querySelector('#dc-copy-id').addEventListener('click', function() {
-      copyToClipboard(syncId).then(function() { showToast('\uD83D\uDCCB ID copiado'); });
-    });
-
-    panel.querySelector('#dc-change-id').addEventListener('click', async function() {
-      var newId = await dcPrompt('Pega el ID del otro dispositivo para vincularlos:', { icon: '\uD83D\uDD17', placeholder: 'user_xxxxx...' });
-      if (newId && newId.trim() && newId.trim() !== syncId) {
-        localStorage.setItem(LS_SYNC_ID, newId.trim());
-        syncUserId = newId.trim();
-        showToast('\uD83D\uDD17 ID actualizado. Descarga los datos de la nube.');
+    // Vincular otro dispositivo (cambiar bin ID)
+    panel.querySelector('#dc-link-save').addEventListener('click', function() {
+      var newId = panel.querySelector('#dc-link-binid').value.trim();
+      if (!newId || newId.length < 10) { showToast('\u274C Bin ID inv\u00e1lido'); return; }
+      if (newId !== savedBinId) {
+        localStorage.setItem(LS_BIN_ID, newId);
+        binId = newId;
+        showToast('\uD83D\uDD17 Bin ID actualizado. Descarga los datos.');
         overlay.remove();
       }
     });
 
+    // PIN
     panel.querySelector('#dc-save-pin').addEventListener('click', function() {
       var newPin = pinInput.value;
       localStorage.setItem(LS_SYNC_PIN, newPin);
@@ -4333,7 +4357,7 @@
       {
         id: 'settings', label: 'Ajustes', icon: '\u2699\uFE0F',
         tiles: [
-          { icon: '\u2699\uFE0F', label: 'Firebase', action: showFirebaseSetup, color: '#FF9500' },
+          { icon: '\u2601\uFE0F', label: 'Nube', action: showCloudSetup, color: '#007AFF' },
           { icon: '\uD83D\uDD14', label: 'Notificaciones', action: showNotificationConfig, color: '#FF3B30' },
           { icon: '\uD83D\uDCB1', label: 'Moneda', action: showCurrencyConfig, color: '#34C759' },
           { icon: '\uD83C\uDF19', label: 'Tema', action: toggleTheme, color: '#5856D6' },
@@ -4492,7 +4516,8 @@
         await new Promise(function(r) { setTimeout(r, 3000); });
         if (navigator.onLine && connected) {
           try {
-            var remote = await restGet('users/' + getSyncId() + '/data/_lastSync');
+            var remoteData = await restGet();
+            var remote = remoteData ? remoteData._lastSync : null;
             var localSync = localStorage.getItem(LS_LAST_SYNC);
             if (remote && localSync && new Date(remote) > new Date(localSync)) {
               showToast('\u26A0\uFE0F Datos m\u00e1s recientes en la nube. Descarga primero.', 5000);
@@ -5185,10 +5210,11 @@
     applySavedTheme();
     cleanupOrphanData();
 
-    dbUrl = getDbUrl();
-    if (dbUrl) {
+    var cfg = getBinConfig();
+    binId = cfg.id;
+    binKey = cfg.key;
+    if (binKey) {
       connected = await testConnection();
-      getSyncId();
     }
 
     createSyncUI();
@@ -5209,7 +5235,7 @@
     // Verificar pagos recurrentes pendientes del mes
     setTimeout(checkRecurringPayments, 7000);
 
-    console.log('[CloudSync] v' + SYNC_VERSION + ' | Firebase:', connected ? '\u2705' : '\u274C', '| Moneda:', getCurrency());
+    console.log('[CloudSync] v' + SYNC_VERSION + ' | JSONBin:', connected ? '\u2705' : '\u274C', '| Moneda:', getCurrency());
   }
 
   init();

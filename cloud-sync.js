@@ -4345,6 +4345,7 @@
       {
         id: 'cloud', label: 'Nube y Backup', icon: '\u2601\uFE0F',
         tiles: [
+          { icon: '\u2699\uFE0F', label: 'Configurar', action: showCloudSetup, color: connected ? '#34C759' : '#FF9500' },
           { icon: '\u2B06\uFE0F', label: 'Subir', action: syncToCloud, color: '#007AFF' },
           { icon: '\u2B07\uFE0F', label: 'Descargar', action: syncFromCloud, color: '#34C759' },
           { icon: '\u23EA', label: 'Revertir', action: restorePreSyncSnapshot, color: '#FF9500' },
